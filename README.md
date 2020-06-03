@@ -1,36 +1,44 @@
-<img align="left" width="440" height="140" alt="Fastest full PostgreSQL nodejs client" src="https://raw.githubusercontent.com/porsager/postgres/master/postgresjs.svg?sanitize=true" />
+<img align="left" width="440" height="140" alt="Fastest full PostgreSQL Deno client" src="./postgresjs.svg?sanitize=true" />
 
-- [🚀 Fastest full featured PostgreSQL client for Node.js](https://github.com/porsager/postgres-benchmarks#results)
+- [🚀 Fastest full featured PostgreSQL client for Deno](https://github.com/porsager/postgres-benchmarks#results)
 - 🚯 1250 LOC - 0 dependencies
 - 🏷 ES6 Tagged Template Strings at the core
 - 🏄‍♀️ Simple surface API
 
 <br>
 
+## Prelude
+
+This code is a modified version of the Node.js package [`postgres`](https://github.com/porsager/postgres) for the Deno runtime.
+It is intended to remain as close as possible to the original code in order to simplify futur pull merge.
+
+Currently, almost all tests pass except thoses about SSL.
+Some fail from time to time due to a race condition that occurs because there is currently no real alternative to the Node.js "setImmediate" function in Deno.
+
 ## Getting started
 
 <br>
-<img height="220" alt="Good UX with Postgres.js" src="https://raw.githubusercontent.com/porsager/postgres/master/demo.gif" />
+<img height="220" alt="Good UX with Postgres.js" src="./demo.gif" />
 <br>
 
 **Install**
-```bash
-$ npm install postgres
+```js
+import postgres from 'https://github.com/Minigugus/postgres-deno/raw/master/mod.js'
 ```
 
 **Use**
 ```js
 // db.js
-const postgres = require('postgres')
+import postgres from 'https://github.com/Minigugus/postgres-deno/raw/master/mod.js'
 
 const sql = postgres({ ...options }) // will default to the same as psql
 
-module.exports = sql
+export default sql
 ```
 
 ```js
 // other.js
-const sql = require('./db.js')
+import sql from './db.js'
 
 await sql`
   select name, age from users
@@ -50,7 +58,7 @@ const sql = postgres('postgres://username:password@host:port/database', {
   database        : '',         // Name of database to connect to
   username        : '',         // Username of database user
   password        : '',         // Password of database user
-  ssl             : false,      // True, or options for tls.connect
+  ssl             : false,      // Connect using SSL [NOT WORKING YET]
   max             : 10,         // Max number of connections
   idle_timeout    : 0,          // Idle connection timeout in seconds
   connect_timeout : 30,         // Connect timeout in seconds
@@ -70,11 +78,11 @@ const sql = postgres('postgres://username:password@host:port/database', {
 })
 ```
 
-More info for the `ssl` option can be found in the [Node.js docs for tls connect options](https://nodejs.org/dist/latest-v10.x/docs/api/tls.html#tls_new_tls_tlssocket_socket_options)
+Currently, the `ssl` option is **NOT WORKING** and setting it to `true` will result in a `SSL_NOT_SUPPORTED_YET` error, since Deno is pretty recent and need some time to transform when comming from Node.js.
 
 ### Environment Variables for Options
 
-It is also possible to connect to the database without a connection string or options, which will read the options from the environment variables in the table below:
+It is also possible to connect to the database without a connection string or options, which will read the options from the environment variables in the table below (require `--allow-env`):
 
 ```js
 const sql = postgres()
@@ -369,7 +377,7 @@ const [{ json }] = await sql`
 
 ## File query `sql.file(path, [args], [options]) -> Promise`
 
-Using an `.sql` file for a query. The contents will be cached in memory so that the file is only read once.
+Using an `.sql` file for a query. The contents will be cached in memory so that the file is only read once. Requires the `--allow-read` flag.
 
 ```js
 
@@ -506,7 +514,7 @@ prexit(async () => {
 
 `Number` in javascript is only able to represent 2<sup>53</sup>-1 safely which means that types in PostgreSQLs like `bigint` and `numeric` won't fit into `Number`.
 
-Since Node.js v10.4 we can use [`BigInt`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigInt) to match the PostgreSQL type `bigint` which is returned for eg. `count(*)`. Unfortunately it doesn't work with `JSON.stringify` out of the box, so Postgres.js will return it as a string. 
+Deno supports [`BigInt`](https://developer.mozilla.org/en-US/docs/Web/JavaScript/Reference/Global_Objects/BigInt), so we can use it to match the PostgreSQL type `bigint` which is returned for eg. `count(*)`. Unfortunately it doesn't work with `JSON.stringify` out of the box, so Postgres.js will return it as a string. 
 
 If you want to use `BigInt` you can add this custom type:
 
@@ -547,7 +555,7 @@ sql.unsafe('select ' + danger + ' from users where id = ' + dragons)
 
 ## Errors
 
-Errors are all thrown to related queries and never globally. Errors coming from PostgreSQL itself are always in the [native Postgres format](https://www.postgresql.org/docs/current/errcodes-appendix.html), and the same goes for any [Node.js errors](https://nodejs.org/api/errors.html#errors_common_system_errors) eg. coming from the underlying connection.
+Errors are all thrown to related queries and never globally. Errors coming from PostgreSQL itself are always in the [native Postgres format](https://www.postgresql.org/docs/current/errcodes-appendix.html), and the same goes for any [Deno errors](https://doc.deno.land/https/github.com/denoland/deno/releases/latest/download/lib.deno.d.ts#Deno.errors) eg. coming from the underlying connection.
 
 Query errors will contain a stored error with the origin of the query to aid in tracing errors.
 
@@ -559,6 +567,11 @@ There are also the following errors specifically for this library.
 > Undefined values are not allowed
 
 Postgres.js won't accept `undefined` as values in tagged template queries since it becomes ambiguous what to do with the value. If you want to set something to null, use `null` explicitly.
+
+##### SSL_NOT_SUPPORTED_YET
+> SSL is not implemented yet.
+
+Current version of `postgres-deno` does not provide SSL support yet. Will be remove soon.
 
 ##### MESSAGE_NOT_SUPPORTED
 > X (X) is not supported
@@ -618,3 +631,5 @@ A really big thank you to [@JAForbes](https://twitter.com/jmsfbs) who introduced
 Thanks to [@ACXgit](https://twitter.com/andreacoiutti) for initial tests and dogfooding.
 
 Also thanks to [Ryan Dahl](http://github.com/ry) for letting me have the `postgres` npm package name.
+
+Finally thanks to [Rasmus Porsager](http://github.com/porsager) for his amazing Node.js library!

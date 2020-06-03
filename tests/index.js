@@ -1,10 +1,20 @@
+/// <reference path="../deno.d.ts" />
+
 /* eslint no-console: 0 */
 
-const { t, not, ot } = require('./test.js') // eslint-disable-line
-const cp = require('child_process')
-const path = require('path')
+// docker run -it --rm -p 5432:5432 -e POSTGRES_USER=$USER -v /run/postgresql:/run/postgresql postgres
 
-const postgres = require('../lib')
+import { t } from './test.js' // eslint-disable-line
+
+const __dirname = import.meta.url.slice(0, import.meta.url.lastIndexOf('/'))
+
+const execSync = (...cmd) => Deno.run({
+  cmd: ['sh', '-c', cmd.join(' ')]
+}).status()
+const join = (...args) => new URL(args.join('/'), 'file:///').pathname
+
+import postgres, { toPascal, toCamel, toKebab } from '../lib/index.js'
+
 const delay = ms => new Promise(r => setTimeout(r, ms))
 
 const login = {
@@ -35,10 +45,11 @@ const options = {
   max: 1
 }
 
-cp.execSync('dropdb ' + options.db + ';createdb ' + options.db)
-;[login, login_clear, login_md5, login_scram].forEach(x =>
-  cp.execSync('psql -c "grant all on database ' + options.db + ' to ' + x.user + '"')
-)
+await execSync('dropdb ' + options.db + ';createdb ' + options.db);
+await ([login, login_clear, login_md5, login_scram].reduce(async(acc, x) =>
+  acc.then(() => execSync('psql -c "create user ' + x.user + (x.pass ? ' password \'' + x.pass + '\'' : '') +';grant all on database ' + options.db + ' to ' + x.user + '"')),
+  Promise.resolve()
+))
 
 const sql = postgres(options)
 
@@ -282,15 +293,15 @@ t('Connect using uri', async() =>
 )
 
 t('Fail with proper error on no host', async() =>
-  ['ECONNREFUSED', (await new Promise((resolve, reject) => {
+  ['ConnectionRefused', (await new Promise((resolve, reject) => {
     const sql = postgres('postgres://localhost:33333/' + options.db, {
       idle_timeout: options.idle_timeout
     })
     sql`select 1`.then(reject, resolve)
-  })).code]
+  })).name]
 )
 
-t('Connect using SSL', async() =>
+t('Connect using SSL', async() => // TODO : SSL support
   [true, (await new Promise((resolve, reject) => {
     postgres({
       ssl: { rejectUnauthorized: false },
@@ -368,32 +379,32 @@ t('Point type array', async() => {
 })
 
 t('sql file', async() =>
-  [1, (await sql.file(path.join(__dirname, 'select.sql')))[0].x]
+  [1, (await sql.file(join(__dirname, 'select.sql')))[0].x]
 )
 
 t('sql file can stream', async() => {
   let result
   await sql
-    .file(path.join(__dirname, 'select.sql'), { cache: false })
+    .file(join(__dirname, 'select.sql'), { cache: false })
     .stream(({ x }) => result = x)
 
   return [1, result]
 })
 
 t('sql file throws', async() =>
-  ['ENOENT', (await sql.file('./selectomondo.sql').catch(x => x.code))]
+  ['NotFound', (await sql.file('./selectomondo.sql').catch(x => x.name))]
 )
 
 t('sql file cached', async() => {
-  await sql.file(path.join(__dirname, 'select.sql'))
+  await sql.file(join(__dirname, 'select.sql'))
   await delay(20)
 
-  return [1, (await sql.file(path.join(__dirname, 'select.sql')))[0].x]
+  return [1, (await sql.file(join(__dirname, 'select.sql')))[0].x]
 })
 
 t('Parameters in file', async() => {
   const result = await sql.file(
-    path.join(__dirname, 'select-param.sql'),
+    join(__dirname, 'select-param.sql'),
     ['hello']
   )
   return ['hello', result[0].x]
@@ -462,7 +473,7 @@ t('transform column', async() => {
 t('column toPascal', async() => {
   const sql = postgres({
     ...options,
-    transform: { column: postgres.toPascal }
+    transform: { column: toPascal }
   })
 
   await sql`create table test (hello_world int)`
@@ -473,7 +484,7 @@ t('column toPascal', async() => {
 t('column toCamel', async() => {
   const sql = postgres({
     ...options,
-    transform: { column: postgres.toCamel }
+    transform: { column: toCamel }
   })
 
   await sql`create table test (hello_world int)`
@@ -484,7 +495,7 @@ t('column toCamel', async() => {
 t('column toKebab', async() => {
   const sql = postgres({
     ...options,
-    transform: { column: postgres.toKebab }
+    transform: { column: toKebab }
   })
 
   await sql`create table test (hello_world int)`
@@ -747,7 +758,7 @@ t('throws correct error when authentication fails', async() => {
     ...login_md5,
     pass: 'wrong'
   })
-  return ['28P01', await sql`select 1`.catch(e => e.code)]
+  return ['28P01', await sql`select 1`.catch(e => e.code)] // FIXME : Password ignored ?
 })
 
 t('notice works', async() => {
@@ -781,12 +792,12 @@ t('notice hook works', async() => {
 })
 
 t('bytea serializes and parses', async() => {
-  const buf = Buffer.from('wat')
+  const buf = new TextEncoder().encode('wat')
 
   await sql`create table test (x bytea)`
   await sql`insert into test values (${ buf })`
 
-  return [0, Buffer.compare(buf, (await sql`select x from test`)[0].x)]
+  return [true, (await sql`select x from test`)[0].x.every((v, i) => buf[i] === v)]
 })
 
 t('Stream works', async() => {
@@ -869,7 +880,7 @@ t('Transform value', async() => {
 t('Unix socket', async() => {
   const sql = postgres({
     ...options,
-    host: '/tmp'
+    host: '/run/postgresql'
   })
 
   return [1, (await sql`select 1 as x`)[0].x]
@@ -909,8 +920,8 @@ t('numeric is returned as string', async() => [
 t('Async stack trace', async() => {
   const sql = postgres({ ...options, debug: false })
   return [
-    parseInt(new Error().stack.split('\n')[1].split(':')[1]) + 1,
-    parseInt(await sql`select.sql`.catch(x => x.stack.split('\n').pop().split(':')[1]))
+    parseInt(new Error().stack.split('\n')[1].split(':')[2]) + 1,
+    parseInt(await sql`select.sql`.catch(x => x.stack.split('\n').pop().split(':')[2]))
   ]
 })
 
@@ -973,7 +984,7 @@ t('connect_timeout throws proper error', async() => [
     ...options,
     ...login_scram,
     connect_timeout: 0.001
-  })`select 1`.catch(e => e.code)
+  })`select 1`.catch(e => e.code) // FIXME : Race condition because of missing "setImmediate"
 ])
 
 t('requests works after single connect_timeout', async() => {
@@ -988,7 +999,7 @@ t('requests works after single connect_timeout', async() => {
   return [
     'CONNECT_TIMEOUT,,1',
     [
-      await sql`select 1 as x`.catch(x => x.code),
+      await sql`select 1 as x`.then(() => 'DONE').catch(x => x.code), // FIXME : Race condition because of missing "setImmediate"
       await new Promise(r => setTimeout(r, 10)),
       (await sql`select 1 as x`)[0].x
     ].join(',')
