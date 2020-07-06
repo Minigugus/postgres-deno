@@ -449,7 +449,8 @@ t('Connection destroyed', async() => {
 
 t('Connection destroyed with query before', async() => {
   const sql = postgres(options)
-  let error = sql`select pg_sleep(0.2)`.catch(err => err.code)
+      , error = sql`select pg_sleep(0.2)`.catch(err => err.code)
+
   sql.end({ timeout: 0 })
   return ['CONNECTION_DESTROYED', await error]
 })
@@ -694,21 +695,30 @@ t('dynamic multi row insert', async() => {
   await sql`create table test (a int, b text)`
   const x = { a: 42, b: 'the answer' }
 
-  return ['the answer', (await sql`insert into test ${ sql([x, x]) } returning *`)[1].b, await sql`drop table test`]
+  return [
+    'the answer',
+    (await sql`insert into test ${ sql([x, x]) } returning *`)[1].b, await sql`drop table test`
+  ]
 })
 
 t('dynamic update', async() => {
   await sql`create table test (a int, b text)`
   await sql`insert into test (a, b) values (17, 'wrong')`
 
-  return ['the answer', (await sql`update test set ${ sql({ a: 42, b: 'the answer' }) } returning *`)[0].b, await sql`drop table test`]
+  return [
+    'the answer',
+    (await sql`update test set ${ sql({ a: 42, b: 'the answer' }) } returning *`)[0].b, await sql`drop table test`
+  ]
 })
 
 t('dynamic update pluck', async() => {
   await sql`create table test (a int, b text)`
   await sql`insert into test (a, b) values (17, 'wrong')`
 
-  return ['wrong', (await sql`update test set ${ sql({ a: 42, b: 'the answer' }, 'a') } returning *`)[0].b, await sql`drop table test`]
+  return [
+    'wrong',
+    (await sql`update test set ${ sql({ a: 42, b: 'the answer' }, 'a') } returning *`)[0].b, await sql`drop table test`
+  ]
 })
 
 t('dynamic select array', async() => {
@@ -955,8 +965,8 @@ t('Error contains query parameters', async() => [
 t('Query string is not enumerable', async() => {
   const sql = postgres({ ...options, debug: false })
   return [
-  -1,
-  (await sql`selec 1`.catch(err => Object.keys(err).indexOf('query')))
+    -1,
+    (await sql`selec 1`.catch(err => Object.keys(err).indexOf('query')))
   ]
 })
 
