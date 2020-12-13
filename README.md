@@ -4,7 +4,7 @@
 - 🚯 1250 LOC - 0 dependencies
 - 🏷 ES6 Tagged Template Strings at the core
 - 🏄‍♀️ Simple surface API
-- 💬 Chat on [Gitter](https://badges.gitter.im/porsager/postgres.svg)
+- 💬 Chat on [Gitter](https://gitter.im/porsager/postgres)
 
 <br>
 
@@ -41,10 +41,10 @@ export default sql
 // other.js
 import sql from './db.js'
 
-await sql`
+const users = await sql`
   select name, age from users
 `
-// > [{ name: 'Murray', age: 68 }, { name: 'Walter', age 78 }]
+// users: [{ name: 'Murray', age: 68 }, { name: 'Walter', age: 78 }]
 ```
 
 ## Connection options `postgres([url], [options])`
@@ -80,7 +80,7 @@ const sql = postgres('postgres://username:password@host:port/database', {
 })
 ```
 
-Currently, the `ssl` option is **NOT WORKING** and setting it to `true` will result in a `SSL_NOT_SUPPORTED_YET` error, since Deno is pretty recent and need some time to transform when comming from Node.js.
+Currently, the `ssl` option is **NOT WORKING** and setting it will result in a `SSL_NOT_SUPPORTED_YET` error. PR are welcome.
 
 ### Environment Variables for Options
 
@@ -448,7 +448,7 @@ sql.begin(async sql => {
 
   return [user, account]
 })
-.then(([user, account])) => {
+.then(([user, account]) => {
   // great success - COMMIT succeeded
 })
 .catch(() => {
@@ -495,7 +495,7 @@ const [custom] = sql`
 
 ## Teardown / Cleanup
 
-To ensure proper teardown and cleanup on server restarts use `sql.end({ timeout: null })` before `process.exit()`.
+To ensure proper teardown and cleanup on server restarts use `sql.end({ timeout: 0 })` before `Deno.exit()`.
 
 Calling `sql.end()` will reject new queries and return a Promise which resolves when all queries are finished and the underlying connections are closed. If a timeout is provided any pending queries will be rejected once the timeout is reached and the connections will be destroyed.
 

@@ -532,7 +532,6 @@ t('listen and notify', async() => { // FIXME Unstable
     .then(() => sql.notify(channel, 'world'))
     .catch(reject)
     .then(sql.end)
-    .then(() => reject(new Error('Callback not called in time')))
   )]
 })
 
@@ -569,7 +568,6 @@ t('listen and notify with weird name', async() => { // FIXME Unstable
     .then(() => sql.notify(channel, 'world'))
     .catch(reject)
     .then(sql.end)
-    .then(() => reject(new Error('Callback not called in time')))
   )]
 })
 
@@ -1001,6 +999,21 @@ t('Query and parameters are enumerable if debug is set', async() => {
   ]
 })
 
+t('connect_timeout works', async() => {
+  const connect_timeout = 0.2
+  const server = Deno.listen({ port: 0 });
+  const sql = postgres({ port: server.addr.port, connect_timeout })
+  const start = Date.now()
+  let end
+  await sql`select 1`.catch((e) => {
+    if (e.code !== 'CONNECT_TIMEOUT')
+      throw e
+    end = Date.now()
+  })
+  server.close()
+  return [connect_timeout, Math.floor((end - start) / 100) / 10, await sql.end()]
+})
+
 t('connect_timeout throws proper error', async() => [
   'CONNECT_TIMEOUT',
   await postgres({
@@ -1068,18 +1081,45 @@ t('Insert array in sql()', async() => {
   return [
     Array.isArray((await sql`insert into tester ${ sql({ ints: sql.array([]) })} returning *`)[0].ints),
     true,
-    await sql`drop table tester`
+    await sql`drop table tester`,
   ]
 })
 
 t('Automatically creates prepared statements', async() => {
-  const sql = postgres({ no_prepare: false })
+  const sql = postgres({ ...options, no_prepare: false })
   const result = await sql`select * from pg_prepared_statements`
   return [result[0].statement, 'select * from pg_prepared_statements', await sql.end()]
 })
 
 t('no_prepare: true disables prepared transactions', async() => {
-  const sql = postgres({ no_prepare: true })
+  const sql = postgres({ ...options, no_prepare: true })
   const result = await sql`select * from pg_prepared_statements`
   return [0, result.count, await sql.end()]
 })
+
+t('Catches connection config errors', async() => {
+  const sql = postgres({ ...options, user: { toString: () => { throw new Error('wat') } }, database: 'prut' })
+
+  return [
+    'wat',
+    await sql`select 1`.catch((e) => e.message),
+    await sql.end()
+  ]
+})
+
+t('Catches connection config errors with end', async() => {
+  const sql = postgres({ ...options, user: { toString: () => { throw new Error('wat') } }, database: 'prut' })
+
+  return [
+    'wat',
+    await sql`select 1`.catch((e) => e.message),
+    await sql.end()
+  ]
+})
+
+t('Catches query format errors', async() => [
+  'wat',
+  await sql.unsafe({ toString: () => { throw new Error('wat') } }).catch((e) => e.message),
+])
+
+t('End global sql', async() => [undefined, await sql.end()])
