@@ -4,18 +4,28 @@
 
 // docker run -it --rm -p 5432:5432 -e POSTGRES_USER=$USER -v /run/postgresql:/run/postgresql postgres
 
-import { t } from './test.js' // eslint-disable-line
+import { not, t } from './test.js' // eslint-disable-line
 
 const __dirname = import.meta.url.slice(0, import.meta.url.lastIndexOf('/'))
 
-const execSync = (...cmd) => Deno.run({
-  cmd: ['sh', '-c', cmd.join(' ')]
-}).status()
 const join = (...args) => new URL(args.join('/'), 'file:///').pathname
+const exec = async (...cmd) => {
+  const process = Deno.run({
+    cmd: ['sh', '-c', cmd.join(' ')]
+  })
+  await process.status();
+  process.close();
+};
 
 import postgres, { toPascal, toCamel, toKebab } from '../lib/index.js'
+import { hasCryptoSupport } from '../lib/deno.js'
 
 const delay = ms => new Promise(r => setTimeout(r, ms))
+
+if (!hasCryptoSupport)
+  console.warn('WebCrypto not available - some tests will be ignored');
+
+const ignoreIfCryptoMissing = !hasCryptoSupport;
 
 const login = {
   user: 'postgres_js_test'
@@ -45,9 +55,9 @@ const options = {
   max: 1
 }
 
-await execSync('dropdb ' + options.db + ';createdb ' + options.db);
+await exec('dropdb ' + options.db + ';createdb ' + options.db);
 await ([login, login_clear, login_md5, login_scram].reduce(async(acc, x) =>
-  acc.then(() => execSync('psql -c "create user ' + x.user + (x.pass ? ' password \'' + x.pass + '\'' : '') +';grant all on database ' + options.db + ' to ' + x.user + '"')),
+  acc.then(() => exec('psql -c "create user ' + x.user + (x.pass ? ' password \'' + x.pass + '\'' : '') +';grant all on database ' + options.db + ' to ' + x.user + '"')),
   Promise.resolve()
 ))
 
@@ -57,7 +67,7 @@ t('Connects with no options', async() => {
   const sql = postgres()
 
   const result = (await sql`select 1 as x`)[0].x
-  sql.end()
+  await sql.end()
 
   return [1, result]
 })
@@ -301,7 +311,7 @@ t('Fail with proper error on no host', async() =>
   })).name]
 )
 
-t('Connect using SSL', async() => // TODO : SSL support
+not('Connect using SSL', async() => // TODO : SSL support
   [true, (await new Promise((resolve, reject) => {
     postgres({
       ssl: { rejectUnauthorized: false },
@@ -320,11 +330,11 @@ t('Login using cleartext', async() => {
 
 t('Login using MD5', async() => {
   return [true, (await postgres({ ...options, ...login_md5 })`select true as x`)[0].x]
-})
+}, ignoreIfCryptoMissing)
 
 t('Login using scram-sha-256', async() => {
   return [true, (await postgres({ ...options, ...login_scram })`select true as x`)[0].x]
-})
+}, ignoreIfCryptoMissing)
 
 t('Support dynamic password function', async() => {
   return [true, (await postgres({
@@ -332,7 +342,7 @@ t('Support dynamic password function', async() => {
     ...login_scram,
     pass: () => 'postgres_js_test_scram'
   })`select true as x`)[0].x]
-})
+}, ignoreIfCryptoMissing)
 
 t('Support dynamic async password function', async() => {
   return [true, (await postgres({
@@ -340,7 +350,7 @@ t('Support dynamic async password function', async() => {
     ...login_scram,
     pass: () => Promise.resolve('postgres_js_test_scram')
   })`select true as x`)[0].x]
-})
+}, ignoreIfCryptoMissing)
 
 t('Point type', async() => {
   const sql = postgres({
@@ -513,7 +523,7 @@ t('unsafe simple', async() => {
   return [1, (await sql.unsafe('select 1 as x'))[0].x]
 })
 
-t('listen and notify', async() => {
+t('listen and notify', async() => { // FIXME Unstable
   const sql = postgres(options)
       , channel = 'hello'
 
@@ -522,6 +532,7 @@ t('listen and notify', async() => {
     .then(() => sql.notify(channel, 'world'))
     .catch(reject)
     .then(sql.end)
+    .then(() => reject(new Error('Callback not called in time')))
   )]
 })
 
@@ -549,7 +560,7 @@ t('double listen', async() => {
   return [2, count]
 })
 
-t('listen and notify with weird name', async() => {
+t('listen and notify with weird name', async() => { // FIXME Unstable
   const sql = postgres(options)
       , channel = 'wat-;ø§'
 
@@ -558,6 +569,7 @@ t('listen and notify with weird name', async() => {
     .then(() => sql.notify(channel, 'world'))
     .catch(reject)
     .then(sql.end)
+    .then(() => reject(new Error('Callback not called in time')))
   )]
 })
 
@@ -769,7 +781,7 @@ t('throws correct error when authentication fails', async() => {
     pass: 'wrong'
   })
   return ['28P01', await sql`select 1`.catch(e => e.code)] // FIXME : Password ignored ?
-})
+}, ignoreIfCryptoMissing)
 
 t('notice works', async() => {
   let notice
@@ -887,14 +899,15 @@ t('Transform value', async() => {
   return [1, (await sql`select 'wat' as x`)[0].x]
 })
 
-t('Unix socket', async() => {
-  const sql = postgres({
-    ...options,
-    host: '/run/postgresql'
-  })
+if (Deno.shutdown)
+  t('Unix socket', async() => {
+    const sql = postgres({
+      ...options,
+      host: '/run/postgresql'
+    })
 
-  return [1, (await sql`select 1 as x`)[0].x]
-})
+    return [1, (await sql`select 1 as x`)[0].x]
+  })
 
 t('Big result', async() => {
   return [100000, (await sql`select * from generate_series(1, 100000)`).count]
@@ -1014,7 +1027,7 @@ t('requests works after single connect_timeout', async() => {
       (await sql`select 1 as x`)[0].x
     ].join(',')
   ]
-})
+}, ignoreIfCryptoMissing)
 
 t('Postgres errors are of type PostgresError', async() =>
   [true, (await sql`bad keyword`.catch(e => e)) instanceof sql.PostgresError]
@@ -1062,11 +1075,11 @@ t('Insert array in sql()', async() => {
 t('Automatically creates prepared statements', async() => {
   const sql = postgres({ no_prepare: false })
   const result = await sql`select * from pg_prepared_statements`
-  return [result[0].statement, 'select * from pg_prepared_statements']
+  return [result[0].statement, 'select * from pg_prepared_statements', await sql.end()]
 })
 
 t('no_prepare: true disables prepared transactions', async() => {
   const sql = postgres({ no_prepare: true })
   const result = await sql`select * from pg_prepared_statements`
-  return [0, result.count]
+  return [0, result.count, await sql.end()]
 })

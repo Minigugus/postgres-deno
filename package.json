@@ -7,7 +7,7 @@
   "types": "types/index.d.ts",
   "typings": "types/index.d.ts",
   "scripts": {
-    "test": "node tests/index.js",
+    "test": "deno test --allow-run --allow-net --allow-read --allow-env tests/index.js",
     "lint": "eslint lib && eslint tests",
     "prepublishOnly": "npm run lint && npm test"
   },
