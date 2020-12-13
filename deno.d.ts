@@ -3,6 +3,66 @@
 /// <reference no-default-lib="true" />
 /// <reference lib="esnext" />
 
+/** Deno provides extra properties on `import.meta`.  These are included here
+ * to ensure that these are still available when using the Deno namepsace in
+ * conjunction with other type libs, like `dom`. */
+declare interface ImportMeta {
+  /** A string representation of the fully qualified module URL. */
+  url: string;
+
+  /** A flag that indicates if the current module is the main module that was
+   * called when starting the program under Deno.
+   *
+   * ```ts
+   * if (import.meta.main) {
+   *   // this was loaded as the main module, maybe do some bootstrapping
+   * }
+   * ```
+   */
+  main: boolean;
+}
+
+/** Deno supports user timing Level 3 (see: https://w3c.github.io/user-timing)
+ * which is not widely supported yet in other runtimes.  These types are here
+ * so that these features are still available when using the Deno namespace
+ * in conjunction with other type libs, like `dom`. */
+declare interface Performance {
+  /** Stores a timestamp with the associated name (a "mark"). */
+  mark(markName: string, options?: PerformanceMarkOptions): PerformanceMark;
+
+  /** Stores the `DOMHighResTimeStamp` duration between two marks along with the
+   * associated name (a "measure"). */
+  measure(
+    measureName: string,
+    options?: PerformanceMeasureOptions,
+  ): PerformanceMeasure;
+}
+
+declare interface PerformanceMarkOptions {
+  /** Metadata to be included in the mark. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  detail?: any;
+
+  /** Timestamp to be used as the mark time. */
+  startTime?: number;
+}
+
+declare interface PerformanceMeasureOptions {
+  /** Metadata to be included in the measure. */
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  detail?: any;
+
+  /** Timestamp to be used as the start time or string to be used as start
+   * mark.*/
+  start?: string | number;
+
+  /** Duration between the start and end times. */
+  duration?: number;
+
+  /** Timestamp to be used as the end time or string to be used as end mark. */
+  end?: string | number;
+}
+
 declare namespace Deno {
   /** A set of error constructors that are raised by Deno APIs. */
   export const errors: {
@@ -38,6 +98,9 @@ declare namespace Deno {
     fn: () => void | Promise<void>;
     name: string;
     ignore?: boolean;
+    /** If at lease one test has `only` set to true, only run tests that have
+     * `only` set to true and fail the test suite. */
+    only?: boolean;
     /** Check that the number of async completed ops after the test is the same
      * as number of dispatched ops. Defaults to true.*/
     sanitizeOps?: boolean;
@@ -129,6 +192,16 @@ declare namespace Deno {
      *
      * Requires `allow-env` permission. */
     set(key: string, value: string): void;
+
+    /** Delete the value of an environment variable.
+     *
+     * ```ts
+     * Deno.env.set("SOME_VAR", "Value"));
+     * Deno.env.delete("SOME_VAR");  // outputs "Undefined"
+     * ```
+     *
+     * Requires `allow-env` permission. */
+    delete(key: string): void;
 
     /** Returns a snapshot of the environment variables at invocation.
      *
@@ -321,7 +394,7 @@ declare namespace Deno {
     dst: Writer,
     options?: {
       bufSize?: number;
-    }
+    },
   ): Promise<number>;
 
   /** Turns a Reader, `r`, into an async iterator.
@@ -357,7 +430,7 @@ declare namespace Deno {
     r: Reader,
     options?: {
       bufSize?: number;
-    }
+    },
   ): AsyncIterableIterator<Uint8Array>;
 
   /** Turns a ReaderSync, `r`, into an iterator.
@@ -393,7 +466,7 @@ declare namespace Deno {
     r: ReaderSync,
     options?: {
       bufSize?: number;
-    }
+    },
   ): IterableIterator<Uint8Array>;
 
   /** Synchronously open a file and return an instance of `Deno.File`.  The
@@ -409,7 +482,7 @@ declare namespace Deno {
    *
    * Requires `allow-read` and/or `allow-write` permissions depending on options.
    */
-  export function openSync(path: string, options?: OpenOptions): File;
+  export function openSync(path: string | URL, options?: OpenOptions): File;
 
   /** Open a file and resolve to an instance of `Deno.File`.  The
    * file does not need to previously exist if using the `create` or `createNew`
@@ -424,7 +497,10 @@ declare namespace Deno {
    *
    * Requires `allow-read` and/or `allow-write` permissions depending on options.
    */
-  export function open(path: string, options?: OpenOptions): Promise<File>;
+  export function open(
+    path: string | URL,
+    options?: OpenOptions,
+  ): Promise<File>;
 
   /** Creates a file if none exists or truncates an existing file and returns
    *  an instance of `Deno.File`.
@@ -435,7 +511,7 @@ declare namespace Deno {
    *
    * Requires `allow-read` and `allow-write` permissions.
    */
-  export function createSync(path: string): File;
+  export function createSync(path: string | URL): File;
 
   /** Creates a file if none exists or truncates an existing file and resolves to
    *  an instance of `Deno.File`.
@@ -446,7 +522,7 @@ declare namespace Deno {
    *
    * Requires `allow-read` and `allow-write` permissions.
    */
-  export function create(path: string): Promise<File>;
+  export function create(path: string | URL): Promise<File>;
 
   /** Synchronously read from a resource ID (`rid`) into an array buffer (`buffer`).
    *
@@ -565,7 +641,7 @@ declare namespace Deno {
   export function seekSync(
     rid: number,
     offset: number,
-    whence: SeekMode
+    whence: SeekMode,
   ): number;
 
   /** Seek a resource ID (`rid`) to the given `offset` under mode given by `whence`.
@@ -597,7 +673,7 @@ declare namespace Deno {
   export function seek(
     rid: number,
     offset: number,
-    whence: SeekMode
+    whence: SeekMode,
   ): Promise<number>;
 
   /** Close the given resource ID (rid) which has been previously opened, such
@@ -710,10 +786,12 @@ declare namespace Deno {
      *
      * The slice is valid for use only until the next buffer modification (that
      * is, only until the next call to a method like `read()`, `write()`,
-     * `reset()`, or `truncate()`). The slice aliases the buffer content at
+     * `reset()`, or `truncate()`). If `options.copy` is false the slice aliases the buffer content at
      * least until the next buffer modification, so immediate changes to the
-     * slice will affect the result of future reads. */
-    bytes(): Uint8Array;
+     * slice will affect the result of future reads.
+     * @param options Defaults to `{ copy: true }`
+     */
+    bytes(options?: { copy?: boolean }): Uint8Array;
     /** Returns whether the unread portion of the buffer is empty. */
     empty(): boolean;
     /** A read only number of bytes of the unread portion of the buffer. */
@@ -880,7 +958,7 @@ declare namespace Deno {
    * Defaults to throwing error if the directory already exists.
    *
    * Requires `allow-write` permission. */
-  export function mkdirSync(path: string, options?: MkdirOptions): void;
+  export function mkdirSync(path: string | URL, options?: MkdirOptions): void;
 
   /** Creates a new directory with the specified path.
    *
@@ -893,7 +971,10 @@ declare namespace Deno {
    * Defaults to throwing error if the directory already exists.
    *
    * Requires `allow-write` permission. */
-  export function mkdir(path: string, options?: MkdirOptions): Promise<void>;
+  export function mkdir(
+    path: string | URL,
+    options?: MkdirOptions,
+  ): Promise<void>;
 
   export interface MakeTempOptions {
     /** Directory where the temporary directory should be created (defaults to
@@ -1001,7 +1082,7 @@ declare namespace Deno {
    * NOTE: This API currently throws on Windows
    *
    * Requires `allow-write` permission. */
-  export function chmodSync(path: string, mode: number): void;
+  export function chmodSync(path: string | URL, mode: number): void;
 
   /** Changes the permission of a specific file/directory of specified path.
    * Ignores the process's umask.
@@ -1031,7 +1112,7 @@ declare namespace Deno {
    * NOTE: This API currently throws on Windows
    *
    * Requires `allow-write` permission. */
-  export function chmod(path: string, mode: number): Promise<void>;
+  export function chmod(path: string | URL, mode: number): Promise<void>;
 
   /** Synchronously change owner of a regular file or directory. This functionality
    * is not available on Windows.
@@ -1045,10 +1126,14 @@ declare namespace Deno {
    * Throws Error (not implemented) if executed on Windows
    *
    * @param path path to the file
-   * @param uid user id (UID) of the new owner
-   * @param gid group id (GID) of the new owner
+   * @param uid user id (UID) of the new owner, or `null` for no change
+   * @param gid group id (GID) of the new owner, or `null` for no change
    */
-  export function chownSync(path: string, uid: number, gid: number): void;
+  export function chownSync(
+    path: string | URL,
+    uid: number | null,
+    gid: number | null,
+  ): void;
 
   /** Change owner of a regular file or directory. This functionality
    * is not available on Windows.
@@ -1062,10 +1147,14 @@ declare namespace Deno {
    * Throws Error (not implemented) if executed on Windows
    *
    * @param path path to the file
-   * @param uid user id (UID) of the new owner
-   * @param gid group id (GID) of the new owner
+   * @param uid user id (UID) of the new owner, or `null` for no change
+   * @param gid group id (GID) of the new owner, or `null` for no change
    */
-  export function chown(path: string, uid: number, gid: number): Promise<void>;
+  export function chown(
+    path: string | URL,
+    uid: number | null,
+    gid: number | null,
+  ): Promise<void>;
 
   export interface RemoveOptions {
     /** Defaults to `false`. If set to `true`, path will be removed even if
@@ -1084,7 +1173,7 @@ declare namespace Deno {
    * directory and the `recursive` option isn't set to `true`.
    *
    * Requires `allow-write` permission. */
-  export function removeSync(path: string, options?: RemoveOptions): void;
+  export function removeSync(path: string | URL, options?: RemoveOptions): void;
 
   /** Removes the named file or directory.
    *
@@ -1097,7 +1186,10 @@ declare namespace Deno {
    * directory and the `recursive` option isn't set to `true`.
    *
    * Requires `allow-write` permission. */
-  export function remove(path: string, options?: RemoveOptions): Promise<void>;
+  export function remove(
+    path: string | URL,
+    options?: RemoveOptions,
+  ): Promise<void>;
 
   /** Synchronously renames (moves) `oldpath` to `newpath`. Paths may be files or
    * directories.  If `newpath` already exists and is not a directory,
@@ -1142,7 +1234,7 @@ declare namespace Deno {
    * ```
    *
    * Requires `allow-read` permission. */
-  export function readTextFileSync(path: string): string;
+  export function readTextFileSync(path: string | URL): string;
 
   /** Asynchronously reads and returns the entire contents of a file as a utf8
    *  encoded string. Reading a directory returns an empty data array.
@@ -1153,7 +1245,7 @@ declare namespace Deno {
    * ```
    *
    * Requires `allow-read` permission. */
-  export function readTextFile(path: string): Promise<string>;
+  export function readTextFile(path: string | URL): Promise<string>;
 
   /** Synchronously reads and returns the entire contents of a file as an array
    * of bytes. `TextDecoder` can be used to transform the bytes to string if
@@ -1166,7 +1258,7 @@ declare namespace Deno {
    * ```
    *
    * Requires `allow-read` permission. */
-  export function readFileSync(path: string): Uint8Array;
+  export function readFileSync(path: string | URL): Uint8Array;
 
   /** Reads and resolves to the entire contents of a file as an array of bytes.
    * `TextDecoder` can be used to transform the bytes to string if required.
@@ -1179,7 +1271,7 @@ declare namespace Deno {
    * ```
    *
    * Requires `allow-read` permission. */
-  export function readFile(path: string): Promise<Uint8Array>;
+  export function readFile(path: string | URL): Promise<Uint8Array>;
 
   /** A FileInfo describes a file and is returned by `stat`, `lstat`,
    * `statSync`, `lstatSync`. */
@@ -1297,7 +1389,7 @@ declare namespace Deno {
    * Throws error if `path` is not a directory.
    *
    * Requires `allow-read` permission. */
-  export function readDirSync(path: string): Iterable<DirEntry>;
+  export function readDirSync(path: string | URL): Iterable<DirEntry>;
 
   /** Reads the directory given by `path` and returns an async iterable of
    * `Deno.DirEntry`.
@@ -1311,7 +1403,7 @@ declare namespace Deno {
    * Throws error if `path` is not a directory.
    *
    * Requires `allow-read` permission. */
-  export function readDir(path: string): AsyncIterable<DirEntry>;
+  export function readDir(path: string | URL): AsyncIterable<DirEntry>;
 
   /** Synchronously copies the contents and permissions of one file to another
    * specified path, by default creating a new file if needed, else overwriting.
@@ -1323,7 +1415,10 @@ declare namespace Deno {
    *
    * Requires `allow-read` permission on fromPath.
    * Requires `allow-write` permission on toPath. */
-  export function copyFileSync(fromPath: string, toPath: string): void;
+  export function copyFileSync(
+    fromPath: string | URL,
+    toPath: string | URL,
+  ): void;
 
   /** Copies the contents and permissions of one file to another specified path,
    * by default creating a new file if needed, else overwriting. Fails if target
@@ -1335,7 +1430,10 @@ declare namespace Deno {
    *
    * Requires `allow-read` permission on fromPath.
    * Requires `allow-write` permission on toPath. */
-  export function copyFile(fromPath: string, toPath: string): Promise<void>;
+  export function copyFile(
+    fromPath: string | URL,
+    toPath: string | URL,
+  ): Promise<void>;
 
   /** Returns the full path destination of the named symbolic link.
    *
@@ -1372,7 +1470,7 @@ declare namespace Deno {
    * ```
    *
    * Requires `allow-read` permission. */
-  export function lstat(path: string): Promise<FileInfo>;
+  export function lstat(path: string | URL): Promise<FileInfo>;
 
   /** Synchronously returns a `Deno.FileInfo` for the specified `path`. If
    * `path` is a symlink, information for the symlink will be returned instead of
@@ -1384,7 +1482,7 @@ declare namespace Deno {
    * ```
    *
    * Requires `allow-read` permission. */
-  export function lstatSync(path: string): FileInfo;
+  export function lstatSync(path: string | URL): FileInfo;
 
   /** Resolves to a `Deno.FileInfo` for the specified `path`. Will always
    * follow symlinks.
@@ -1396,7 +1494,7 @@ declare namespace Deno {
    * ```
    *
    * Requires `allow-read` permission. */
-  export function stat(path: string): Promise<FileInfo>;
+  export function stat(path: string | URL): Promise<FileInfo>;
 
   /** Synchronously returns a `Deno.FileInfo` for the specified `path`. Will
    * always follow symlinks.
@@ -1408,7 +1506,7 @@ declare namespace Deno {
    * ```
    *
    * Requires `allow-read` permission. */
-  export function statSync(path: string): FileInfo;
+  export function statSync(path: string | URL): FileInfo;
 
   /** Options for writing to a file. */
   export interface WriteFileOptions {
@@ -1438,9 +1536,9 @@ declare namespace Deno {
    * `false`.
    */
   export function writeFileSync(
-    path: string,
+    path: string | URL,
     data: Uint8Array,
-    options?: WriteFileOptions
+    options?: WriteFileOptions,
   ): void;
 
   /** Write `data` to the given `path`, by default creating a new file if needed,
@@ -1458,21 +1556,25 @@ declare namespace Deno {
    * Requires `allow-write` permission, and `allow-read` if `options.create` is `false`.
    */
   export function writeFile(
-    path: string,
+    path: string | URL,
     data: Uint8Array,
-    options?: WriteFileOptions
+    options?: WriteFileOptions,
   ): Promise<void>;
 
   /** Synchronously write string `data` to the given `path`, by default creating a new file if needed,
    * else overwriting.
    *
    * ```ts
-   * await Deno.writeTextFileSync("hello1.txt", "Hello world\n");  // overwrite "hello1.txt" or create it
+   * Deno.writeTextFileSync("hello1.txt", "Hello world\n");  // overwrite "hello1.txt" or create it
    * ```
    *
    * Requires `allow-write` permission, and `allow-read` if `options.create` is `false`.
    */
-  export function writeTextFileSync(path: string, data: string): void;
+  export function writeTextFileSync(
+    path: string | URL,
+    data: string,
+    options?: WriteFileOptions,
+  ): void;
 
   /** Asynchronously write string `data` to the given `path`, by default creating a new file if needed,
    * else overwriting.
@@ -1483,7 +1585,11 @@ declare namespace Deno {
    *
    * Requires `allow-write` permission, and `allow-read` if `options.create` is `false`.
    */
-  export function writeTextFile(path: string, data: string): Promise<void>;
+  export function writeTextFile(
+    path: string | URL,
+    data: string,
+    options?: WriteFileOptions,
+  ): Promise<void>;
 
   /** Synchronously truncates or extends the specified file, to reach the
    * specified `len`.  If `len` is not specified then the entire file contents
@@ -1545,6 +1651,9 @@ declare namespace Deno {
     /** Return the address of the `Listener`. */
     readonly addr: Addr;
 
+    /** Return the rid of the `Listener`. */
+    readonly rid: number;
+
     [Symbol.asyncIterator](): AsyncIterableIterator<Conn>;
   }
 
@@ -1583,7 +1692,7 @@ declare namespace Deno {
    *
    * Requires `allow-net` permission. */
   export function listen(
-    options: ListenOptions & { transport?: "tcp" }
+    options: ListenOptions & { transport?: "tcp" },
   ): Listener;
 
   export interface ListenTlsOptions extends ListenOptions {
@@ -1735,15 +1844,18 @@ declare namespace Deno {
    */
   export function watchFs(
     paths: string | string[],
-    options?: { recursive: boolean }
+    options?: { recursive: boolean },
   ): AsyncIterableIterator<FsEvent>;
 
-  export class Process {
+  export class Process<T extends RunOptions = RunOptions> {
     readonly rid: number;
     readonly pid: number;
-    readonly stdin?: Writer & Closer;
-    readonly stdout?: Reader & Closer;
-    readonly stderr?: Reader & Closer;
+    readonly stdin: T["stdin"] extends "piped" ? Writer & Closer
+      : (Writer & Closer) | null;
+    readonly stdout: T["stdout"] extends "piped" ? Reader & Closer
+      : (Reader & Closer) | null;
+    readonly stderr: T["stderr"] extends "piped" ? Reader & Closer
+      : (Reader & Closer) | null;
     /** Resolves to the current status of the process. */
     status(): Promise<ProcessStatus>;
     /** Buffer the stdout until EOF and return it as `Uint8Array`.
@@ -1771,20 +1883,20 @@ declare namespace Deno {
 
   export type ProcessStatus =
     | {
-        success: true;
-        code: 0;
-        signal?: undefined;
-      }
+      success: true;
+      code: 0;
+      signal?: undefined;
+    }
     | {
-        success: false;
-        code: number;
-        signal?: number;
-      };
+      success: false;
+      code: number;
+      signal?: number;
+    };
 
   export interface RunOptions {
     /** Arguments to pass. Note, the first element needs to be a path to the
      * binary */
-    cmd: string[];
+    cmd: string[] | [URL, ...string[]];
     cwd?: string;
     env?: {
       [key: string]: string;
@@ -1826,10 +1938,20 @@ declare namespace Deno {
    * Details of the spawned process are returned.
    *
    * Requires `allow-run` permission. */
-  export function run(opt: RunOptions): Process;
+  export function run<T extends RunOptions = RunOptions>(opt: T): Process<T>;
 
-  interface InspectOptions {
+  export interface InspectOptions {
+    /** Traversal depth for nested objects. Defaults to 4. */
     depth?: number;
+    /** Sort Object, Set and Map entries by key. Defaults to false. */
+    sorted?: boolean;
+    /** Add a trailing comma for multiline collections. Defaults to false. */
+    trailingComma?: boolean;
+    /** Try to fit more than one entry of a collection on the same line.
+     * Defaults to true. */
+    compact?: boolean;
+    /** The maximum number of iterable entries to print. Defaults to 100. */
+    iterableLimit?: number;
   }
 
   /** Converts the input into a string that has the same format as printed by
@@ -1859,9 +1981,9 @@ declare namespace Deno {
    *      const inStringFormat = Deno.inspect(new A()); // "x=10, y=hello"
    *      console.log(inStringFormat);  // prints "x=10, y=hello"
    *
-   * Finally, a number of output options are also available.
+   * Finally, you can also specify the depth to which it will format.
    *
-   *      const out = Deno.inspect(obj, {showHidden: true, depth: 4, colors: true, indentLevel: 2});
+   *      Deno.inspect({a: {b: {c: {d: 'hello'}}}}, {depth: 2}); // { a: { b: [Object] } }
    *
    */
   export function inspect(value: unknown, options?: InspectOptions): string;
@@ -1903,6 +2025,197 @@ declare namespace Deno {
    * called when `Deno.inspect()` is called, or when the object is logged to
    * the console. */
   export const customInspect: unique symbol;
+
+  /** The URL of the entrypoint module entered from the command-line. */
+  export const mainModule: string;
+}
+
+// Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
+
+/// <reference no-default-lib="true" />
+/// <reference lib="esnext" />
+
+declare class DOMException extends Error {
+  constructor(message?: string, name?: string);
+  readonly name: string;
+  readonly message: string;
+}
+
+interface EventInit {
+  bubbles?: boolean;
+  cancelable?: boolean;
+  composed?: boolean;
+}
+
+/** An event which takes place in the DOM. */
+declare class Event {
+  constructor(type: string, eventInitDict?: EventInit);
+  /** Returns true or false depending on how event was initialized. True if
+     * event goes through its target's ancestors in reverse tree order, and
+     * false otherwise. */
+  readonly bubbles: boolean;
+  cancelBubble: boolean;
+  /** Returns true or false depending on how event was initialized. Its return
+     * value does not always carry meaning, but true can indicate that part of the
+     * operation during which event was dispatched, can be canceled by invoking
+     * the preventDefault() method. */
+  readonly cancelable: boolean;
+  /** Returns true or false depending on how event was initialized. True if
+     * event invokes listeners past a ShadowRoot node that is the root of its
+     * target, and false otherwise. */
+  readonly composed: boolean;
+  /** Returns the object whose event listener's callback is currently being
+     * invoked. */
+  readonly currentTarget: EventTarget | null;
+  /** Returns true if preventDefault() was invoked successfully to indicate
+     * cancellation, and false otherwise. */
+  readonly defaultPrevented: boolean;
+  /** Returns the event's phase, which is one of NONE, CAPTURING_PHASE,
+     * AT_TARGET, and BUBBLING_PHASE. */
+  readonly eventPhase: number;
+  /** Returns true if event was dispatched by the user agent, and false
+     * otherwise. */
+  readonly isTrusted: boolean;
+  /** Returns the object to which event is dispatched (its target). */
+  readonly target: EventTarget | null;
+  /** Returns the event's timestamp as the number of milliseconds measured
+     * relative to the time origin. */
+  readonly timeStamp: number;
+  /** Returns the type of event, e.g. "click", "hashchange", or "submit". */
+  readonly type: string;
+  /** Returns the invocation target objects of event's path (objects on which
+     * listeners will be invoked), except for any nodes in shadow trees of which
+     * the shadow root's mode is "closed" that are not reachable from event's
+     * currentTarget. */
+  composedPath(): EventTarget[];
+  /** If invoked when the cancelable attribute value is true, and while
+     * executing a listener for the event with passive set to false, signals to
+     * the operation that caused event to be dispatched that it needs to be
+     * canceled. */
+  preventDefault(): void;
+  /** Invoking this method prevents event from reaching any registered event
+     * listeners after the current one finishes running and, when dispatched in a
+     * tree, also prevents event from reaching any other objects. */
+  stopImmediatePropagation(): void;
+  /** When dispatched in a tree, invoking this method prevents event from
+     * reaching any objects other than the current object. */
+  stopPropagation(): void;
+  readonly AT_TARGET: number;
+  readonly BUBBLING_PHASE: number;
+  readonly CAPTURING_PHASE: number;
+  readonly NONE: number;
+  static readonly AT_TARGET: number;
+  static readonly BUBBLING_PHASE: number;
+  static readonly CAPTURING_PHASE: number;
+  static readonly NONE: number;
+}
+
+/**
+   * EventTarget is a DOM interface implemented by objects that can receive events
+   * and may have listeners for them.
+   */
+declare class EventTarget {
+  /** Appends an event listener for events whose type attribute value is type.
+     * The callback argument sets the callback that will be invoked when the event
+     * is dispatched.
+     *
+     * The options argument sets listener-specific options. For compatibility this
+     * can be a boolean, in which case the method behaves exactly as if the value
+     * was specified as options's capture.
+     *
+     * When set to true, options's capture prevents callback from being invoked
+     * when the event's eventPhase attribute value is BUBBLING_PHASE. When false
+     * (or not present), callback will not be invoked when event's eventPhase
+     * attribute value is CAPTURING_PHASE. Either way, callback will be invoked if
+     * event's eventPhase attribute value is AT_TARGET.
+     *
+     * When set to true, options's passive indicates that the callback will not
+     * cancel the event by invoking preventDefault(). This is used to enable
+     * performance optimizations described in § 2.8 Observing event listeners.
+     *
+     * When set to true, options's once indicates that the callback will only be
+     * invoked once after which the event listener will be removed.
+     *
+     * The event listener is appended to target's event listener list and is not
+     * appended if it has the same type, callback, and capture. */
+  addEventListener(
+    type: string,
+    listener: EventListenerOrEventListenerObject | null,
+    options?: boolean | AddEventListenerOptions,
+  ): void;
+  /** Dispatches a synthetic event event to target and returns true if either
+     * event's cancelable attribute value is false or its preventDefault() method
+     * was not invoked, and false otherwise. */
+  dispatchEvent(event: Event): boolean;
+  /** Removes the event listener in target's event listener list with the same
+     * type, callback, and options. */
+  removeEventListener(
+    type: string,
+    callback: EventListenerOrEventListenerObject | null,
+    options?: EventListenerOptions | boolean,
+  ): void;
+  [Symbol.toStringTag]: string;
+}
+
+interface EventListener {
+  (evt: Event): void | Promise<void>;
+}
+
+interface EventListenerObject {
+  handleEvent(evt: Event): void | Promise<void>;
+}
+
+declare type EventListenerOrEventListenerObject =
+  | EventListener
+  | EventListenerObject;
+
+interface AddEventListenerOptions extends EventListenerOptions {
+  once?: boolean;
+  passive?: boolean;
+}
+
+interface EventListenerOptions {
+  capture?: boolean;
+}
+
+/** Decodes a string of data which has been encoded using base-64 encoding.
+ *
+ *     console.log(atob("aGVsbG8gd29ybGQ=")); // outputs 'hello world'
+ */
+declare function atob(s: string): string;
+
+/** Creates a base-64 ASCII encoded string from the input string.
+ *
+ *     console.log(btoa("hello world"));  // outputs "aGVsbG8gd29ybGQ="
+ */
+declare function btoa(s: string): string;
+
+declare class TextDecoder {
+  /** Returns encoding's name, lowercased. */
+  readonly encoding: string;
+  /** Returns `true` if error mode is "fatal", and `false` otherwise. */
+  readonly fatal: boolean;
+  /** Returns `true` if ignore BOM flag is set, and `false` otherwise. */
+  readonly ignoreBOM = false;
+  constructor(
+    label?: string,
+    options?: { fatal?: boolean; ignoreBOM?: boolean },
+  );
+  /** Returns the result of running encoding's decoder. */
+  decode(input?: BufferSource, options?: { stream?: false }): string;
+  readonly [Symbol.toStringTag]: string;
+}
+
+declare class TextEncoder {
+  /** Returns "utf-8". */
+  readonly encoding = "utf-8";
+  /** Returns the result of running UTF-8's encoder. */
+  encode(input?: string): Uint8Array;
+  encodeInto(
+    input: string,
+    dest: Uint8Array,
+  ): { read: number; written: number };
+  readonly [Symbol.toStringTag]: string;
 }
 
 // Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
@@ -1911,6 +2224,7 @@ declare namespace Deno {
 
 /// <reference no-default-lib="true" />
 /// <reference lib="esnext" />
+/// <reference lib="deno.web" />
 
 // This follows the WebIDL at: https://webassembly.github.io/spec/js-api/
 // and: https://webassembly.github.io/spec/web-api/
@@ -1938,7 +2252,7 @@ declare namespace WebAssembly {
    * its first `WebAssembly.Instance`. */
   function instantiate(
     bufferSource: BufferSource,
-    importObject?: object
+    importObject?: object,
   ): Promise<WebAssemblyInstantiatedSource>;
 
   /** Takes an already-compiled `WebAssembly.Module` and returns a `Promise`
@@ -1946,7 +2260,7 @@ declare namespace WebAssembly {
    * the `Module` has already been compiled. */
   function instantiate(
     module: Module,
-    importObject?: object
+    importObject?: object,
   ): Promise<Instance>;
 
   /** Compiles and instantiates a WebAssembly module directly from a streamed
@@ -1954,7 +2268,7 @@ declare namespace WebAssembly {
    * code. */
   function instantiateStreaming(
     source: Promise<Response>,
-    importObject?: object
+    importObject?: object,
   ): Promise<WebAssemblyInstantiatedSource>;
 
   /** Validates a given typed array of WebAssembly binary code, returning
@@ -1980,7 +2294,7 @@ declare namespace WebAssembly {
      * custom sections in the module with the given string name. */
     static customSections(
       moduleObject: Module,
-      sectionName: string
+      sectionName: string,
     ): ArrayBuffer;
 
     /** Given a `Module`, returns an array containing descriptions of all the
@@ -2126,6 +2440,10 @@ declare function clearInterval(id?: number): void;
  */
 declare function clearTimeout(id?: number): void;
 
+interface VoidFunction {
+  (): void;
+}
+
 /** A microtask is a short function which is executed after the function or
  * module which created it exits and only if the JavaScript execution stack is
  * empty, but before returning control to the event loop being used to drive the
@@ -2134,7 +2452,7 @@ declare function clearTimeout(id?: number): void;
  *
  *     queueMicrotask(() => { console.log('This event loop stack is complete'); });
  */
-declare function queueMicrotask(func: Function): void;
+declare function queueMicrotask(func: VoidFunction): void;
 
 declare var console: Console;
 declare var crypto: Crypto;
@@ -2149,7 +2467,7 @@ declare var crypto: Crypto;
 declare function addEventListener(
   type: string,
   callback: EventListenerOrEventListenerObject | null,
-  options?: boolean | AddEventListenerOptions | undefined
+  options?: boolean | AddEventListenerOptions | undefined,
 ): void;
 
 /** Dispatches an event in the global scope, synchronously invoking any
@@ -2170,13 +2488,8 @@ declare function dispatchEvent(event: Event): boolean;
 declare function removeEventListener(
   type: string,
   callback: EventListenerOrEventListenerObject | null,
-  options?: boolean | EventListenerOptions | undefined
+  options?: boolean | EventListenerOptions | undefined,
 ): void;
-
-declare interface ImportMeta {
-  url: string;
-  main: boolean;
-}
 
 interface DomIterable<K, V> {
   keys(): IterableIterator<K>;
@@ -2185,7 +2498,7 @@ interface DomIterable<K, V> {
   [Symbol.iterator](): IterableIterator<[K, V]>;
   forEach(
     callback: (value: V, key: K, parent: this) => void,
-    thisArg?: any
+    thisArg?: any,
   ): void;
 }
 
@@ -2306,7 +2619,7 @@ interface ReadableStream<R = any> {
       writable: WritableStream<R>;
       readable: ReadableStream<T>;
     },
-    options?: PipeOptions
+    options?: PipeOptions,
   ): ReadableStream<T>;
   pipeTo(dest: WritableStream<R>, options?: PipeOptions): Promise<void>;
   tee(): [ReadableStream<R>, ReadableStream<R>];
@@ -2319,11 +2632,11 @@ declare var ReadableStream: {
   prototype: ReadableStream;
   new (
     underlyingSource: UnderlyingByteSource,
-    strategy?: { highWaterMark?: number; size?: undefined }
+    strategy?: { highWaterMark?: number; size?: undefined },
   ): ReadableStream<Uint8Array>;
   new <R = any>(
     underlyingSource?: UnderlyingSource<R>,
-    strategy?: QueuingStrategy<R>
+    strategy?: QueuingStrategy<R>,
   ): ReadableStream<R>;
 };
 
@@ -2336,9 +2649,11 @@ interface WritableStreamDefaultControllerStartCallback {
 }
 
 interface WritableStreamDefaultControllerWriteCallback<W> {
-  (chunk: W, controller: WritableStreamDefaultController): void | PromiseLike<
-    void
-  >;
+  (chunk: W, controller: WritableStreamDefaultController):
+    | void
+    | PromiseLike<
+      void
+    >;
 }
 
 interface WritableStreamErrorCallback {
@@ -2359,7 +2674,7 @@ interface UnderlyingSink<W = any> {
 declare class WritableStream<W = any> {
   constructor(
     underlyingSink?: UnderlyingSink<W>,
-    strategy?: QueuingStrategy<W>
+    strategy?: QueuingStrategy<W>,
   );
   readonly locked: boolean;
   abort(reason?: any): Promise<void>;
@@ -2393,7 +2708,7 @@ declare class TransformStream<I = any, O = any> {
   constructor(
     transformer?: Transformer<I, O>,
     writableStrategy?: QueuingStrategy<I>,
-    readableStrategy?: QueuingStrategy<O>
+    readableStrategy?: QueuingStrategy<O>,
   );
   readonly readable: ReadableStream<O>;
   readonly writable: WritableStream<I>;
@@ -2421,7 +2736,7 @@ interface TransformStreamDefaultControllerCallback<O> {
 interface TransformStreamDefaultControllerTransformCallback<I, O> {
   (
     chunk: I,
-    controller: TransformStreamDefaultController<O>
+    controller: TransformStreamDefaultController<O>,
   ): void | PromiseLike<void>;
 }
 
@@ -2433,12 +2748,6 @@ interface DOMStringList {
   /** Returns the string with index index from strings. */
   item(index: number): string | null;
   [index: number]: string;
-}
-
-declare class DOMException extends Error {
-  constructor(message?: string, name?: string);
-  readonly name: string;
-  readonly message: string;
 }
 
 type BufferSource = ArrayBufferView | ArrayBuffer;
@@ -2480,6 +2789,48 @@ declare const File: {
   new (fileBits: BlobPart[], fileName: string, options?: FilePropertyBag): File;
 };
 
+interface FileReaderEventMap {
+  "abort": ProgressEvent<FileReader>;
+  "error": ProgressEvent<FileReader>;
+  "load": ProgressEvent<FileReader>;
+  "loadend": ProgressEvent<FileReader>;
+  "loadstart": ProgressEvent<FileReader>;
+  "progress": ProgressEvent<FileReader>;
+}
+
+/** Lets web applications asynchronously read the contents of files (or raw data buffers) stored on the user's computer, using File or Blob objects to specify the file or data to read. */
+interface FileReader extends EventTarget {
+  readonly error: DOMException | null;
+  onabort: ((this: FileReader, ev: ProgressEvent<FileReader>) => any) | null;
+  onerror: ((this: FileReader, ev: ProgressEvent<FileReader>) => any) | null;
+  onload: ((this: FileReader, ev: ProgressEvent<FileReader>) => any) | null;
+  onloadend: ((this: FileReader, ev: ProgressEvent<FileReader>) => any) | null;
+  onloadstart: ((this: FileReader, ev: ProgressEvent<FileReader>) => any) | null;
+  onprogress: ((this: FileReader, ev: ProgressEvent<FileReader>) => any) | null;
+  readonly readyState: number;
+  readonly result: string | ArrayBuffer | null;
+  abort(): void;
+  readAsArrayBuffer(blob: Blob): void;
+  readAsBinaryString(blob: Blob): void;
+  readAsDataURL(blob: Blob): void;
+  readAsText(blob: Blob, encoding?: string): void;
+  readonly DONE: number;
+  readonly EMPTY: number;
+  readonly LOADING: number;
+  addEventListener<K extends keyof FileReaderEventMap>(type: K, listener: (this: FileReader, ev: FileReaderEventMap[K]) => any, options?: boolean | AddEventListenerOptions): void;
+  addEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | AddEventListenerOptions): void;
+  removeEventListener<K extends keyof FileReaderEventMap>(type: K, listener: (this: FileReader, ev: FileReaderEventMap[K]) => any, options?: boolean | EventListenerOptions): void;
+  removeEventListener(type: string, listener: EventListenerOrEventListenerObject, options?: boolean | EventListenerOptions): void;
+}
+
+declare var FileReader: {
+  prototype: FileReader;
+  new(): FileReader;
+  readonly DONE: number;
+  readonly EMPTY: number;
+  readonly LOADING: number;
+};
+
 declare const isConsoleInstance: unique symbol;
 
 declare class Console {
@@ -2497,11 +2848,10 @@ declare class Console {
     options?: Partial<{
       depth: number;
       indentLevel: number;
-    }>
+    }>,
   ) => void;
 
-  /** From MDN:
-   * Displays an interactive tree of the descendant elements of
+  /** Displays an interactive tree of the descendant elements of
    * the specified XML/HTML element. If it is not possible to display
    * as an element the JavaScript Object view is shown instead.
    * The output is presented as a hierarchical listing of expandable
@@ -2509,6 +2859,9 @@ declare class Console {
    *
    * Since we write to stdout, we can't display anything interactive
    * we just fall back to `console.dir`.
+   * 
+   * > [Console.dirxml](https://developer.mozilla.org/en-US/docs/Web/API/Console/dirxml)
+   * > by Mozilla Contributors is licensed under CC-BY-SA 2.5.
    */
   dirxml: (
     obj: unknown,
@@ -2517,7 +2870,7 @@ declare class Console {
       depth: number;
       colors: boolean;
       indentLevel: number;
-    }>
+    }>,
   ) => void;
 
   /** Writes the arguments to stdout */
@@ -2558,9 +2911,9 @@ declare interface Crypto {
       | Float32Array
       | Float64Array
       | DataView
-      | null
+      | null,
   >(
-    array: T
+    array: T,
   ): T;
 }
 
@@ -2632,7 +2985,7 @@ interface Headers {
   set(name: string, value: string): void;
   forEach(
     callbackfn: (value: string, key: string, parent: Headers) => void,
-    thisArg?: any
+    thisArg?: any,
   ): void;
 }
 
@@ -2670,7 +3023,7 @@ interface Headers extends DomIterable<string, string> {
   values(): IterableIterator<string>;
   forEach(
     callbackfn: (value: string, key: string, parent: this) => void,
-    thisArg?: any
+    thisArg?: any,
   ): void;
   /** The Symbol.iterator well-known symbol specifies the default
    * iterator for this Headers object
@@ -2931,48 +3284,8 @@ declare const Response: {
  */
 declare function fetch(
   input: Request | URL | string,
-  init?: RequestInit
+  init?: RequestInit,
 ): Promise<Response>;
-
-/** Decodes a string of data which has been encoded using base-64 encoding.
- *
- *     console.log(atob("aGVsbG8gd29ybGQ=")); // outputs 'hello world'
- */
-declare function atob(s: string): string;
-
-/** Creates a base-64 ASCII encoded string from the input string.
- *
- *     console.log(btoa("hello world"));  // outputs "aGVsbG8gd29ybGQ="
- */
-declare function btoa(s: string): string;
-
-declare class TextDecoder {
-  /** Returns encoding's name, lowercased. */
-  readonly encoding: string;
-  /** Returns `true` if error mode is "fatal", and `false` otherwise. */
-  readonly fatal: boolean;
-  /** Returns `true` if ignore BOM flag is set, and `false` otherwise. */
-  readonly ignoreBOM = false;
-  constructor(
-    label?: string,
-    options?: { fatal?: boolean; ignoreBOM?: boolean }
-  );
-  /** Returns the result of running encoding's decoder. */
-  decode(input?: BufferSource, options?: { stream?: false }): string;
-  readonly [Symbol.toStringTag]: string;
-}
-
-declare class TextEncoder {
-  /** Returns "utf-8". */
-  readonly encoding = "utf-8";
-  /** Returns the result of running UTF-8's encoder. */
-  encode(input?: string): Uint8Array;
-  encodeInto(
-    input: string,
-    dest: Uint8Array
-  ): { read: number; written: number };
-  readonly [Symbol.toStringTag]: string;
-}
 
 interface URLSearchParams {
   /** Appends a specified key/value pair as a new search parameter.
@@ -3056,7 +3369,7 @@ interface URLSearchParams {
    */
   forEach(
     callbackfn: (value: string, key: string, parent: this) => void,
-    thisArg?: any
+    thisArg?: any,
   ): void;
 
   /** Returns an iterator allowing to go through all keys contained
@@ -3119,7 +3432,7 @@ interface URLSearchParams {
 declare const URLSearchParams: {
   prototype: URLSearchParams;
   new (
-    init?: string[][] | Record<string, string> | string | URLSearchParams
+    init?: string[][] | Record<string, string> | string | URLSearchParams,
   ): URLSearchParams;
   toString(): string;
 };
@@ -3144,7 +3457,7 @@ interface URL {
 
 declare const URL: {
   prototype: URL;
-  new (url: string | URL, base?: string | URL): URL;
+  new (url: string, base?: string | URL): URL;
   createObjectURL(object: any): string;
   revokeObjectURL(url: string): void;
 };
@@ -3183,6 +3496,12 @@ interface PostMessageOptions {
   transfer?: any[];
 }
 
+interface ProgressEventInit extends EventInit {
+  lengthComputable?: boolean;
+  loaded?: number;
+  total?: number;
+}
+
 declare class Worker extends EventTarget {
   onerror?: (e: ErrorEvent) => void;
   onmessage?: (e: MessageEvent) => void;
@@ -3207,7 +3526,10 @@ declare class Worker extends EventTarget {
        *
        * ```ts
        * // mod.ts
-       * const worker = new Worker("./deno_worker.ts", { type: "module", deno: true });
+       * const worker = new Worker(
+       *   new URL("deno_worker.ts", import.meta.url).href,
+       *   { type: "module", deno: true }
+       * );
        * worker.postMessage({ cmd: "readFile", fileName: "./log.txt" });
        *
        * // deno_worker.ts
@@ -3235,14 +3557,43 @@ declare class Worker extends EventTarget {
        *
        */
       deno?: boolean;
-    }
+    },
   );
   postMessage(message: any, transfer: ArrayBuffer[]): void;
   postMessage(message: any, options?: PostMessageOptions): void;
   terminate(): void;
 }
 
-declare namespace performance {
+declare type PerformanceEntryList = PerformanceEntry[];
+
+declare interface Performance {
+  /** Removes the stored timestamp with the associated name. */
+  clearMarks(markName?: string): void;
+
+  /** Removes stored timestamp with the associated name. */
+  clearMeasures(measureName?: string): void;
+
+  getEntries(): PerformanceEntryList;
+  getEntriesByName(name: string, type?: string): PerformanceEntryList;
+  getEntriesByType(type: string): PerformanceEntryList;
+
+  /** Stores a timestamp with the associated name (a "mark"). */
+  mark(markName: string, options?: PerformanceMarkOptions): PerformanceMark;
+
+  /** Stores the `DOMHighResTimeStamp` duration between two marks along with the
+   * associated name (a "measure"). */
+  measure(
+    measureName: string,
+    options?: PerformanceMeasureOptions,
+  ): PerformanceMeasure;
+  /** Stores the `DOMHighResTimeStamp` duration between two marks along with the
+   * associated name (a "measure"). */
+  measure(
+    measureName: string,
+    startMark?: string,
+    endMark?: string,
+  ): PerformanceMeasure;
+
   /** Returns a current time from Deno's start in milliseconds.
    *
    * Use the permission flag `--allow-hrtime` return a precise value.
@@ -3252,144 +3603,68 @@ declare namespace performance {
    * console.log(`${t} ms since start!`);
    * ```
    */
-  export function now(): number;
+  now(): number;
 }
 
-interface EventInit {
-  bubbles?: boolean;
-  cancelable?: boolean;
-  composed?: boolean;
+declare const Performance: {
+  prototype: Performance;
+  new (): Performance;
+};
+
+declare const performance: Performance;
+
+declare interface PerformanceMarkOptions {
+  /** Metadata to be included in the mark. */
+  detail?: any;
+
+  /** Timestamp to be used as the mark time. */
+  startTime?: number;
 }
 
-/** An event which takes place in the DOM. */
-declare class Event {
-  constructor(type: string, eventInitDict?: EventInit);
-  /** Returns true or false depending on how event was initialized. True if
-   * event goes through its target's ancestors in reverse tree order, and
-   * false otherwise. */
-  readonly bubbles: boolean;
-  cancelBubble: boolean;
-  /** Returns true or false depending on how event was initialized. Its return
-   * value does not always carry meaning, but true can indicate that part of the
-   * operation during which event was dispatched, can be canceled by invoking
-   * the preventDefault() method. */
-  readonly cancelable: boolean;
-  /** Returns true or false depending on how event was initialized. True if
-   * event invokes listeners past a ShadowRoot node that is the root of its
-   * target, and false otherwise. */
-  readonly composed: boolean;
-  /** Returns the object whose event listener's callback is currently being
-   * invoked. */
-  readonly currentTarget: EventTarget | null;
-  /** Returns true if preventDefault() was invoked successfully to indicate
-   * cancellation, and false otherwise. */
-  readonly defaultPrevented: boolean;
-  /** Returns the event's phase, which is one of NONE, CAPTURING_PHASE,
-   * AT_TARGET, and BUBBLING_PHASE. */
-  readonly eventPhase: number;
-  /** Returns true if event was dispatched by the user agent, and false
-   * otherwise. */
-  readonly isTrusted: boolean;
-  /** Returns the object to which event is dispatched (its target). */
-  readonly target: EventTarget | null;
-  /** Returns the event's timestamp as the number of milliseconds measured
-   * relative to the time origin. */
-  readonly timeStamp: number;
-  /** Returns the type of event, e.g. "click", "hashchange", or "submit". */
-  readonly type: string;
-  /** Returns the invocation target objects of event's path (objects on which
-   * listeners will be invoked), except for any nodes in shadow trees of which
-   * the shadow root's mode is "closed" that are not reachable from event's
-   * currentTarget. */
-  composedPath(): EventTarget[];
-  /** If invoked when the cancelable attribute value is true, and while
-   * executing a listener for the event with passive set to false, signals to
-   * the operation that caused event to be dispatched that it needs to be
-   * canceled. */
-  preventDefault(): void;
-  /** Invoking this method prevents event from reaching any registered event
-   * listeners after the current one finishes running and, when dispatched in a
-   * tree, also prevents event from reaching any other objects. */
-  stopImmediatePropagation(): void;
-  /** When dispatched in a tree, invoking this method prevents event from
-   * reaching any objects other than the current object. */
-  stopPropagation(): void;
-  readonly AT_TARGET: number;
-  readonly BUBBLING_PHASE: number;
-  readonly CAPTURING_PHASE: number;
-  readonly NONE: number;
-  static readonly AT_TARGET: number;
-  static readonly BUBBLING_PHASE: number;
-  static readonly CAPTURING_PHASE: number;
-  static readonly NONE: number;
+declare interface PerformanceMeasureOptions {
+  /** Metadata to be included in the measure. */
+  detail?: any;
+
+  /** Timestamp to be used as the start time or string to be used as start
+   * mark.*/
+  start?: string | number;
+
+  /** Duration between the start and end times. */
+  duration?: number;
+
+  /** Timestamp to be used as the end time or string to be used as end mark. */
+  end?: string | number;
 }
 
-/**
- * EventTarget is a DOM interface implemented by objects that can receive events
- * and may have listeners for them.
- */
-declare class EventTarget {
-  /** Appends an event listener for events whose type attribute value is type.
-   * The callback argument sets the callback that will be invoked when the event
-   * is dispatched.
-   *
-   * The options argument sets listener-specific options. For compatibility this
-   * can be a boolean, in which case the method behaves exactly as if the value
-   * was specified as options's capture.
-   *
-   * When set to true, options's capture prevents callback from being invoked
-   * when the event's eventPhase attribute value is BUBBLING_PHASE. When false
-   * (or not present), callback will not be invoked when event's eventPhase
-   * attribute value is CAPTURING_PHASE. Either way, callback will be invoked if
-   * event's eventPhase attribute value is AT_TARGET.
-   *
-   * When set to true, options's passive indicates that the callback will not
-   * cancel the event by invoking preventDefault(). This is used to enable
-   * performance optimizations described in § 2.8 Observing event listeners.
-   *
-   * When set to true, options's once indicates that the callback will only be
-   * invoked once after which the event listener will be removed.
-   *
-   * The event listener is appended to target's event listener list and is not
-   * appended if it has the same type, callback, and capture. */
-  addEventListener(
-    type: string,
-    listener: EventListenerOrEventListenerObject | null,
-    options?: boolean | AddEventListenerOptions
-  ): void;
-  /** Dispatches a synthetic event event to target and returns true if either
-   * event's cancelable attribute value is false or its preventDefault() method
-   * was not invoked, and false otherwise. */
-  dispatchEvent(event: Event): boolean;
-  /** Removes the event listener in target's event listener list with the same
-   * type, callback, and options. */
-  removeEventListener(
-    type: string,
-    callback: EventListenerOrEventListenerObject | null,
-    options?: EventListenerOptions | boolean
-  ): void;
-  [Symbol.toStringTag]: string;
+/** Encapsulates a single performance metric that is part of the performance
+ * timeline. A performance entry can be directly created by making a performance
+ * mark or measure (for example by calling the `.mark()` method) at an explicit
+ * point in an application. */
+declare class PerformanceEntry {
+  readonly duration: number;
+  readonly entryType: string;
+  readonly name: string;
+  readonly startTime: number;
+  toJSON(): any;
 }
 
-interface EventListener {
-  (evt: Event): void | Promise<void>;
+/** `PerformanceMark` is an abstract interface for `PerformanceEntry` objects
+ * with an entryType of `"mark"`. Entries of this type are created by calling
+ * `performance.mark()` to add a named `DOMHighResTimeStamp` (the mark) to the
+ * performance timeline. */
+declare class PerformanceMark extends PerformanceEntry {
+  readonly detail: any;
+  readonly entryType: "mark";
+  constructor(name: string, options?: PerformanceMarkOptions);
 }
 
-interface EventListenerObject {
-  handleEvent(evt: Event): void | Promise<void>;
-}
-
-declare type EventListenerOrEventListenerObject =
-  | EventListener
-  | EventListenerObject;
-
-interface AddEventListenerOptions extends EventListenerOptions {
-  once?: boolean;
-  passive?: boolean;
-}
-
-interface EventListenerOptions {
-  capture?: boolean;
+/** `PerformanceMeasure` is an abstract interface for `PerformanceEntry` objects
+ * with an entryType of `"measure"`. Entries of this type are created by calling
+ * `performance.measure()` to add a named `DOMHighResTimeStamp` (the measure)
+ * between two marks to the performance timeline. */
+declare class PerformanceMeasure extends PerformanceEntry {
+  readonly detail: any;
+  readonly entryType: "measure";
 }
 
 /** Events measuring progress of an underlying process, like an HTTP request
@@ -3401,6 +3676,11 @@ interface ProgressEvent<T extends EventTarget = EventTarget> extends Event {
   readonly target: T | null;
   readonly total: number;
 }
+
+declare var ProgressEvent: {
+  prototype: ProgressEvent;
+  new(type:string, eventInitDict?: ProgressEventInit): ProgressEvent;
+};
 
 interface CustomEventInit<T = any> extends EventInit {
   detail?: T;
@@ -3437,22 +3717,22 @@ interface AbortSignal extends EventTarget {
   addEventListener<K extends keyof AbortSignalEventMap>(
     type: K,
     listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any,
-    options?: boolean | AddEventListenerOptions
+    options?: boolean | AddEventListenerOptions,
   ): void;
   addEventListener(
     type: string,
     listener: EventListenerOrEventListenerObject,
-    options?: boolean | AddEventListenerOptions
+    options?: boolean | AddEventListenerOptions,
   ): void;
   removeEventListener<K extends keyof AbortSignalEventMap>(
     type: K,
     listener: (this: AbortSignal, ev: AbortSignalEventMap[K]) => any,
-    options?: boolean | EventListenerOptions
+    options?: boolean | EventListenerOptions,
   ): void;
   removeEventListener(
     type: string,
     listener: EventListenerOrEventListenerObject,
-    options?: boolean | EventListenerOptions
+    options?: boolean | EventListenerOptions,
   ): void;
 }
 
@@ -3494,3 +3774,1259 @@ declare const onload: ((this: Window, ev: Event) => any) | null;
 declare const onunload: ((this: Window, ev: Event) => any) | null;
 
 /* eslint-enable @typescript-eslint/no-explicit-any */
+
+// Copyright 2018-2020 the Deno authors. All rights reserved. MIT license.
+
+/// <reference no-default-lib="true" />
+/// <reference lib="deno.ns" />
+
+declare namespace Deno {
+  /**
+   * **UNSTABLE**: New API, yet to be vetted.  This API is under consideration to
+   * determine if permissions are required to call it.
+   *
+   * Retrieve the process umask.  If `mask` is provided, sets the process umask.
+   * This call always returns what the umask was before the call.
+   *
+   * ```ts
+   * console.log(Deno.umask());  // e.g. 18 (0o022)
+   * const prevUmaskValue = Deno.umask(0o077);  // e.g. 18 (0o022)
+   * console.log(Deno.umask());  // e.g. 63 (0o077)
+   * ```
+   *
+   * NOTE:  This API is not implemented on Windows
+   */
+  export function umask(mask?: number): number;
+
+  /** **UNSTABLE**: This API needs a security review.
+   *
+   * Synchronously creates `newpath` as a hard link to `oldpath`.
+   *
+   * ```ts
+   * Deno.linkSync("old/name", "new/name");
+   * ```
+   *
+   * Requires `allow-read` and `allow-write` permissions. */
+  export function linkSync(oldpath: string, newpath: string): void;
+
+  /** **UNSTABLE**: This API needs a security review.
+   *
+   * Creates `newpath` as a hard link to `oldpath`.
+   *
+   * ```ts
+   * await Deno.link("old/name", "new/name");
+   * ```
+   *
+   * Requires `allow-read` and `allow-write` permissions. */
+  export function link(oldpath: string, newpath: string): Promise<void>;
+
+  /** **UNSTABLE**: New API, yet to be vetted.
+   *
+   * Gets the size of the console as columns/rows.
+   *
+   * ```ts
+   * const { columns, rows } = Deno.consoleSize(Deno.stdout.rid);
+   * ```
+   */
+  export function consoleSize(
+    rid: number,
+  ): {
+    columns: number;
+    rows: number;
+  };
+
+  export type SymlinkOptions = {
+    type: "file" | "dir";
+  };
+
+  /** **UNSTABLE**: This API needs a security review.
+   *
+   * Creates `newpath` as a symbolic link to `oldpath`.
+   *
+   * The options.type parameter can be set to `file` or `dir`. This argument is only
+   * available on Windows and ignored on other platforms.
+   *
+   * ```ts
+   * Deno.symlinkSync("old/name", "new/name");
+   * ```
+   *
+   * Requires `allow-write` permission. */
+  export function symlinkSync(
+    oldpath: string,
+    newpath: string,
+    options?: SymlinkOptions,
+  ): void;
+
+  /** **UNSTABLE**: This API needs a security review.
+   *
+   * Creates `newpath` as a symbolic link to `oldpath`.
+   *
+   * The options.type parameter can be set to `file` or `dir`. This argument is only
+   * available on Windows and ignored on other platforms.
+   *
+   * ```ts
+   * await Deno.symlink("old/name", "new/name");
+   * ```
+   *
+   * Requires `allow-write` permission. */
+  export function symlink(
+    oldpath: string,
+    newpath: string,
+    options?: SymlinkOptions,
+  ): Promise<void>;
+
+  /** **Unstable**  There are questions around which permission this needs. And
+   * maybe should be renamed (loadAverage?)
+   *
+   * Returns an array containing the 1, 5, and 15 minute load averages. The
+   * load average is a measure of CPU and IO utilization of the last one, five,
+   * and 15 minute periods expressed as a fractional number.  Zero means there
+   * is no load. On Windows, the three values are always the same and represent
+   * the current load, not the 1, 5 and 15 minute load averages.
+   *
+   * ```ts
+   * console.log(Deno.loadavg());  // e.g. [ 0.71, 0.44, 0.44 ]
+   * ```
+   *
+   * Requires `allow-env` permission.
+   */
+  export function loadavg(): number[];
+
+  /** **Unstable** new API. yet to be vetted. Under consideration to possibly move to
+   * Deno.build or Deno.versions and if it should depend sys-info, which may not
+   * be desireable.
+   *
+   * Returns the release version of the Operating System.
+   *
+   * ```ts
+   * console.log(Deno.osRelease());
+   * ```
+   *
+   * Requires `allow-env` permission.
+   *
+   */
+  export function osRelease(): string;
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * Open and initialize a plugin.
+   *
+   * ```ts
+   * const rid = Deno.openPlugin("./path/to/some/plugin.so");
+   * const opId = Deno.core.ops()["some_op"];
+   * const response = Deno.core.dispatch(opId, new Uint8Array([1,2,3,4]));
+   * console.log(`Response from plugin ${response}`);
+   * ```
+   *
+   * Requires `allow-plugin` permission.
+   *
+   * The plugin system is not stable and will change in the future, hence the
+   * lack of docs. For now take a look at the example
+   * https://github.com/denoland/deno/tree/master/test_plugin
+   */
+  export function openPlugin(filename: string): number;
+
+  /** The log category for a diagnostic message. */
+  export enum DiagnosticCategory {
+    Log = 0,
+    Debug = 1,
+    Info = 2,
+    Error = 3,
+    Warning = 4,
+    Suggestion = 5,
+  }
+
+  export interface DiagnosticMessageChain {
+    message: string;
+    category: DiagnosticCategory;
+    code: number;
+    next?: DiagnosticMessageChain[];
+  }
+
+  export interface DiagnosticItem {
+    /** A string message summarizing the diagnostic. */
+    message: string;
+    /** An ordered array of further diagnostics. */
+    messageChain?: DiagnosticMessageChain;
+    /** Information related to the diagnostic. This is present when there is a
+     * suggestion or other additional diagnostic information */
+    relatedInformation?: DiagnosticItem[];
+    /** The text of the source line related to the diagnostic. */
+    sourceLine?: string;
+    /** The line number that is related to the diagnostic. */
+    lineNumber?: number;
+    /** The name of the script resource related to the diagnostic. */
+    scriptResourceName?: string;
+    /** The start position related to the diagnostic. */
+    startPosition?: number;
+    /** The end position related to the diagnostic. */
+    endPosition?: number;
+    /** The category of the diagnostic. */
+    category: DiagnosticCategory;
+    /** A number identifier. */
+    code: number;
+    /** The the start column of the sourceLine related to the diagnostic. */
+    startColumn?: number;
+    /** The end column of the sourceLine related to the diagnostic. */
+    endColumn?: number;
+  }
+
+  export interface Diagnostic {
+    /** An array of diagnostic items. */
+    items: DiagnosticItem[];
+  }
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * Format an array of diagnostic items and return them as a single string in a
+   * user friendly format.
+   *
+   * ```ts
+   * const [diagnostics, result] = Deno.compile("file_with_compile_issues.ts");
+   * console.table(diagnostics);  // Prints raw diagnostic data
+   * console.log(Deno.formatDiagnostics(diagnostics));  // User friendly output of diagnostics
+   * ```
+   *
+   * @param items An array of diagnostic items to format
+   */
+  export function formatDiagnostics(items: DiagnosticItem[]): string;
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * A specific subset TypeScript compiler options that can be supported by the
+   * Deno TypeScript compiler. */
+  export interface CompilerOptions {
+    /** Allow JavaScript files to be compiled. Defaults to `true`. */
+    allowJs?: boolean;
+    /** Allow default imports from modules with no default export. This does not
+     * affect code emit, just typechecking. Defaults to `false`. */
+    allowSyntheticDefaultImports?: boolean;
+    /** Allow accessing UMD globals from modules. Defaults to `false`. */
+    allowUmdGlobalAccess?: boolean;
+    /** Do not report errors on unreachable code. Defaults to `false`. */
+    allowUnreachableCode?: boolean;
+    /** Do not report errors on unused labels. Defaults to `false` */
+    allowUnusedLabels?: boolean;
+    /** Parse in strict mode and emit `"use strict"` for each source file.
+     * Defaults to `true`. */
+    alwaysStrict?: boolean;
+    /** Base directory to resolve non-relative module names. Defaults to
+     * `undefined`. */
+    baseUrl?: string;
+    /** Report errors in `.js` files. Use in conjunction with `allowJs`. Defaults
+     * to `false`. */
+    checkJs?: boolean;
+    /** Generates corresponding `.d.ts` file. Defaults to `false`. */
+    declaration?: boolean;
+    /** Output directory for generated declaration files. */
+    declarationDir?: string;
+    /** Generates a source map for each corresponding `.d.ts` file. Defaults to
+     * `false`. */
+    declarationMap?: boolean;
+    /** Provide full support for iterables in `for..of`, spread and
+     * destructuring when targeting ES5 or ES3. Defaults to `false`. */
+    downlevelIteration?: boolean;
+    /** Emit a UTF-8 Byte Order Mark (BOM) in the beginning of output files.
+     * Defaults to `false`. */
+    emitBOM?: boolean;
+    /** Only emit `.d.ts` declaration files. Defaults to `false`. */
+    emitDeclarationOnly?: boolean;
+    /** Emit design-type metadata for decorated declarations in source. See issue
+     * [microsoft/TypeScript#2577](https://github.com/Microsoft/TypeScript/issues/2577)
+     * for details. Defaults to `false`. */
+    emitDecoratorMetadata?: boolean;
+    /** Emit `__importStar` and `__importDefault` helpers for runtime babel
+     * ecosystem compatibility and enable `allowSyntheticDefaultImports` for type
+     * system compatibility. Defaults to `true`. */
+    esModuleInterop?: boolean;
+    /** Enables experimental support for ES decorators. Defaults to `false`. */
+    experimentalDecorators?: boolean;
+    /** Emit a single file with source maps instead of having a separate file.
+     * Defaults to `false`. */
+    inlineSourceMap?: boolean;
+    /** Emit the source alongside the source maps within a single file; requires
+     * `inlineSourceMap` or `sourceMap` to be set. Defaults to `false`. */
+    inlineSources?: boolean;
+    /** Perform additional checks to ensure that transpile only would be safe.
+     * Defaults to `false`. */
+    isolatedModules?: boolean;
+    /** Support JSX in `.tsx` files: `"react"`, `"preserve"`, `"react-native"`.
+     * Defaults to `"react"`. */
+    jsx?: "react" | "preserve" | "react-native";
+    /** Specify the JSX factory function to use when targeting react JSX emit,
+     * e.g. `React.createElement` or `h`. Defaults to `React.createElement`. */
+    jsxFactory?: string;
+    /** Resolve keyof to string valued property names only (no numbers or
+     * symbols). Defaults to `false`. */
+    keyofStringsOnly?: string;
+    /** Emit class fields with ECMAScript-standard semantics. Defaults to `false`.
+     * Does not apply to `"esnext"` target. */
+    useDefineForClassFields?: boolean;
+    /** List of library files to be included in the compilation. If omitted,
+     * then the Deno main runtime libs are used. */
+    lib?: string[];
+    /** The locale to use to show error messages. */
+    locale?: string;
+    /** Specifies the location where debugger should locate map files instead of
+     * generated locations. Use this flag if the `.map` files will be located at
+     * run-time in a different location than the `.js` files. The location
+     * specified will be embedded in the source map to direct the debugger where
+     * the map files will be located. Defaults to `undefined`. */
+    mapRoot?: string;
+    /** Specify the module format for the emitted code. Defaults to
+     * `"esnext"`. */
+    module?:
+      | "none"
+      | "commonjs"
+      | "amd"
+      | "system"
+      | "umd"
+      | "es6"
+      | "es2015"
+      | "esnext";
+    /** Do not generate custom helper functions like `__extends` in compiled
+     * output. Defaults to `false`. */
+    noEmitHelpers?: boolean;
+    /** Report errors for fallthrough cases in switch statement. Defaults to
+     * `false`. */
+    noFallthroughCasesInSwitch?: boolean;
+    /** Raise error on expressions and declarations with an implied any type.
+     * Defaults to `true`. */
+    noImplicitAny?: boolean;
+    /** Report an error when not all code paths in function return a value.
+     * Defaults to `false`. */
+    noImplicitReturns?: boolean;
+    /** Raise error on `this` expressions with an implied `any` type. Defaults to
+     * `true`. */
+    noImplicitThis?: boolean;
+    /** Do not emit `"use strict"` directives in module output. Defaults to
+     * `false`. */
+    noImplicitUseStrict?: boolean;
+    /** Do not add triple-slash references or module import targets to the list of
+     * compiled files. Defaults to `false`. */
+    noResolve?: boolean;
+    /** Disable strict checking of generic signatures in function types. Defaults
+     * to `false`. */
+    noStrictGenericChecks?: boolean;
+    /** Report errors on unused locals. Defaults to `false`. */
+    noUnusedLocals?: boolean;
+    /** Report errors on unused parameters. Defaults to `false`. */
+    noUnusedParameters?: boolean;
+    /** Redirect output structure to the directory. This only impacts
+     * `Deno.compile` and only changes the emitted file names. Defaults to
+     * `undefined`. */
+    outDir?: string;
+    /** List of path mapping entries for module names to locations relative to the
+     * `baseUrl`. Defaults to `undefined`. */
+    paths?: Record<string, string[]>;
+    /** Do not erase const enum declarations in generated code. Defaults to
+     * `false`. */
+    preserveConstEnums?: boolean;
+    /** Remove all comments except copy-right header comments beginning with
+     * `/*!`. Defaults to `true`. */
+    removeComments?: boolean;
+    /** Include modules imported with `.json` extension. Defaults to `true`. */
+    resolveJsonModule?: boolean;
+    /** Specifies the root directory of input files. Only use to control the
+     * output directory structure with `outDir`. Defaults to `undefined`. */
+    rootDir?: string;
+    /** List of _root_ folders whose combined content represent the structure of
+     * the project at runtime. Defaults to `undefined`. */
+    rootDirs?: string[];
+    /** Generates corresponding `.map` file. Defaults to `false`. */
+    sourceMap?: boolean;
+    /** Specifies the location where debugger should locate TypeScript files
+     * instead of source locations. Use this flag if the sources will be located
+     * at run-time in a different location than that at design-time. The location
+     * specified will be embedded in the sourceMap to direct the debugger where
+     * the source files will be located. Defaults to `undefined`. */
+    sourceRoot?: string;
+    /** Enable all strict type checking options. Enabling `strict` enables
+     * `noImplicitAny`, `noImplicitThis`, `alwaysStrict`, `strictBindCallApply`,
+     * `strictNullChecks`, `strictFunctionTypes` and
+     * `strictPropertyInitialization`. Defaults to `true`. */
+    strict?: boolean;
+    /** Enable stricter checking of the `bind`, `call`, and `apply` methods on
+     * functions. Defaults to `true`. */
+    strictBindCallApply?: boolean;
+    /** Disable bivariant parameter checking for function types. Defaults to
+     * `true`. */
+    strictFunctionTypes?: boolean;
+    /** Ensure non-undefined class properties are initialized in the constructor.
+     * This option requires `strictNullChecks` be enabled in order to take effect.
+     * Defaults to `true`. */
+    strictPropertyInitialization?: boolean;
+    /** In strict null checking mode, the `null` and `undefined` values are not in
+     * the domain of every type and are only assignable to themselves and `any`
+     * (the one exception being that `undefined` is also assignable to `void`). */
+    strictNullChecks?: boolean;
+    /** Suppress excess property checks for object literals. Defaults to
+     * `false`. */
+    suppressExcessPropertyErrors?: boolean;
+    /** Suppress `noImplicitAny` errors for indexing objects lacking index
+     * signatures. */
+    suppressImplicitAnyIndexErrors?: boolean;
+    /** Specify ECMAScript target version. Defaults to `esnext`. */
+    target?:
+      | "es3"
+      | "es5"
+      | "es6"
+      | "es2015"
+      | "es2016"
+      | "es2017"
+      | "es2018"
+      | "es2019"
+      | "es2020"
+      | "esnext";
+    /** List of names of type definitions to include. Defaults to `undefined`.
+     *
+     * The type definitions are resolved according to the normal Deno resolution
+     * irrespective of if sources are provided on the call. Like other Deno
+     * modules, there is no "magical" resolution. For example:
+     *
+     * ```ts
+     * Deno.compile(
+     *   "./foo.js",
+     *   undefined,
+     *   {
+     *     types: [ "./foo.d.ts", "https://deno.land/x/example/types.d.ts" ]
+     *   }
+     * );
+     * ```
+     */
+    types?: string[];
+  }
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * The results of a transpile only command, where the `source` contains the
+   * emitted source, and `map` optionally contains the source map. */
+  export interface TranspileOnlyResult {
+    source: string;
+    map?: string;
+  }
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * Takes a set of TypeScript sources and resolves to a map where the key was
+   * the original file name provided in sources and the result contains the
+   * `source` and optionally the `map` from the transpile operation. This does no
+   * type checking and validation, it effectively "strips" the types from the
+   * file.
+   *
+   * ```ts
+   * const results =  await Deno.transpileOnly({
+   *   "foo.ts": `const foo: string = "foo";`
+   * });
+   * ```
+   *
+   * @param sources A map where the key is the filename and the value is the text
+   *                to transpile. The filename is only used in the transpile and
+   *                not resolved, for example to fill in the source name in the
+   *                source map.
+   * @param options An option object of options to send to the compiler. This is
+   *                a subset of ts.CompilerOptions which can be supported by Deno.
+   *                Many of the options related to type checking and emitting
+   *                type declaration files will have no impact on the output.
+   */
+  export function transpileOnly(
+    sources: Record<string, string>,
+    options?: CompilerOptions,
+  ): Promise<Record<string, TranspileOnlyResult>>;
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * Takes a root module name, and optionally a record set of sources. Resolves
+   * with a compiled set of modules and possibly diagnostics if the compiler
+   * encountered any issues. If just a root name is provided, the modules
+   * will be resolved as if the root module had been passed on the command line.
+   *
+   * If sources are passed, all modules will be resolved out of this object, where
+   * the key is the module name and the value is the content. The extension of
+   * the module name will be used to determine the media type of the module.
+   *
+   * ```ts
+   * const [ maybeDiagnostics1, output1 ] = await Deno.compile("foo.ts");
+   *
+   * const [ maybeDiagnostics2, output2 ] = await Deno.compile("/foo.ts", {
+   *   "/foo.ts": `export * from "./bar.ts";`,
+   *   "/bar.ts": `export const bar = "bar";`
+   * });
+   * ```
+   *
+   * @param rootName The root name of the module which will be used as the
+   *                 "starting point". If no `sources` is specified, Deno will
+   *                 resolve the module externally as if the `rootName` had been
+   *                 specified on the command line.
+   * @param sources An optional key/value map of sources to be used when resolving
+   *                modules, where the key is the module name, and the value is
+   *                the source content. The extension of the key will determine
+   *                the media type of the file when processing. If supplied,
+   *                Deno will not attempt to resolve any modules externally.
+   * @param options An optional object of options to send to the compiler. This is
+   *                a subset of ts.CompilerOptions which can be supported by Deno.
+   */
+  export function compile(
+    rootName: string,
+    sources?: Record<string, string>,
+    options?: CompilerOptions,
+  ): Promise<[DiagnosticItem[] | undefined, Record<string, string>]>;
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * `bundle()` is part the compiler API.  A full description of this functionality
+   * can be found in the [manual](https://deno.land/manual/runtime/compiler_apis#denobundle).
+   *
+   * Takes a root module name, and optionally a record set of sources. Resolves
+   * with a single JavaScript string (and bundle diagnostics if issues arise with
+   * the bundling) that is like the output of a `deno bundle` command. If just
+   * a root name is provided, the modules will be resolved as if the root module
+   * had been passed on the command line.
+   *
+   * If sources are passed, all modules will be resolved out of this object, where
+   * the key is the module name and the value is the content. The extension of the
+   * module name will be used to determine the media type of the module.
+   *
+   * ```ts
+   * // equivalent to "deno bundle foo.ts" from the command line
+   * const [ maybeDiagnostics1, output1 ] = await Deno.bundle("foo.ts");
+   *
+   * const [ maybeDiagnostics2, output2 ] = await Deno.bundle("/foo.ts", {
+   *   "/foo.ts": `export * from "./bar.ts";`,
+   *   "/bar.ts": `export const bar = "bar";`
+   * });
+   * ```
+   *
+   * @param rootName The root name of the module which will be used as the
+   *                 "starting point". If no `sources` is specified, Deno will
+   *                 resolve the module externally as if the `rootName` had been
+   *                 specified on the command line.
+   * @param sources An optional key/value map of sources to be used when resolving
+   *                modules, where the key is the module name, and the value is
+   *                the source content. The extension of the key will determine
+   *                the media type of the file when processing. If supplied,
+   *                Deno will not attempt to resolve any modules externally.
+   * @param options An optional object of options to send to the compiler. This is
+   *                a subset of ts.CompilerOptions which can be supported by Deno.
+   */
+  export function bundle(
+    rootName: string,
+    sources?: Record<string, string>,
+    options?: CompilerOptions,
+  ): Promise<[DiagnosticItem[] | undefined, string]>;
+
+  /** **UNSTABLE**: Should not have same name as `window.location` type. */
+  interface Location {
+    /** The full url for the module, e.g. `file://some/file.ts` or
+     * `https://some/file.ts`. */
+    fileName: string;
+    /** The line number in the file. It is assumed to be 1-indexed. */
+    lineNumber: number;
+    /** The column number in the file. It is assumed to be 1-indexed. */
+    columnNumber: number;
+  }
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * Given a current location in a module, lookup the source location and return
+   * it.
+   *
+   * When Deno transpiles code, it keep source maps of the transpiled code. This
+   * function can be used to lookup the original location. This is
+   * automatically done when accessing the `.stack` of an error, or when an
+   * uncaught error is logged. This function can be used to perform the lookup
+   * for creating better error handling.
+   *
+   * **Note:** `line` and `column` are 1 indexed, which matches display
+   * expectations, but is not typical of most index numbers in Deno.
+   *
+   * An example:
+   *
+   * ```ts
+   * const orig = Deno.applySourceMap({
+   *   fileName: "file://my/module.ts",
+   *   lineNumber: 5,
+   *   columnNumber: 15
+   * });
+   * console.log(`${orig.filename}:${orig.line}:${orig.column}`);
+   * ```
+   */
+  export function applySourceMap(location: Location): Location;
+
+  enum LinuxSignal {
+    SIGHUP = 1,
+    SIGINT = 2,
+    SIGQUIT = 3,
+    SIGILL = 4,
+    SIGTRAP = 5,
+    SIGABRT = 6,
+    SIGBUS = 7,
+    SIGFPE = 8,
+    SIGKILL = 9,
+    SIGUSR1 = 10,
+    SIGSEGV = 11,
+    SIGUSR2 = 12,
+    SIGPIPE = 13,
+    SIGALRM = 14,
+    SIGTERM = 15,
+    SIGSTKFLT = 16,
+    SIGCHLD = 17,
+    SIGCONT = 18,
+    SIGSTOP = 19,
+    SIGTSTP = 20,
+    SIGTTIN = 21,
+    SIGTTOU = 22,
+    SIGURG = 23,
+    SIGXCPU = 24,
+    SIGXFSZ = 25,
+    SIGVTALRM = 26,
+    SIGPROF = 27,
+    SIGWINCH = 28,
+    SIGIO = 29,
+    SIGPWR = 30,
+    SIGSYS = 31,
+  }
+  enum MacOSSignal {
+    SIGHUP = 1,
+    SIGINT = 2,
+    SIGQUIT = 3,
+    SIGILL = 4,
+    SIGTRAP = 5,
+    SIGABRT = 6,
+    SIGEMT = 7,
+    SIGFPE = 8,
+    SIGKILL = 9,
+    SIGBUS = 10,
+    SIGSEGV = 11,
+    SIGSYS = 12,
+    SIGPIPE = 13,
+    SIGALRM = 14,
+    SIGTERM = 15,
+    SIGURG = 16,
+    SIGSTOP = 17,
+    SIGTSTP = 18,
+    SIGCONT = 19,
+    SIGCHLD = 20,
+    SIGTTIN = 21,
+    SIGTTOU = 22,
+    SIGIO = 23,
+    SIGXCPU = 24,
+    SIGXFSZ = 25,
+    SIGVTALRM = 26,
+    SIGPROF = 27,
+    SIGWINCH = 28,
+    SIGINFO = 29,
+    SIGUSR1 = 30,
+    SIGUSR2 = 31,
+  }
+
+  /** **UNSTABLE**: Further changes required to make platform independent.
+   *
+   * Signals numbers. This is platform dependent. */
+  export const Signal: typeof MacOSSignal | typeof LinuxSignal;
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * Represents the stream of signals, implements both `AsyncIterator` and
+   * `PromiseLike`. */
+  export class SignalStream
+    implements AsyncIterableIterator<void>, PromiseLike<void> {
+    constructor(signal: typeof Deno.Signal);
+    then<T, S>(
+      f: (v: void) => T | Promise<T>,
+      g?: (v: void) => S | Promise<S>,
+    ): Promise<T | S>;
+    next(): Promise<IteratorResult<void>>;
+    [Symbol.asyncIterator](): AsyncIterableIterator<void>;
+    dispose(): void;
+  }
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * Returns the stream of the given signal number. You can use it as an async
+   * iterator.
+   *
+   * ```ts
+   * for await (const _ of Deno.signal(Deno.Signal.SIGTERM)) {
+   *   console.log("got SIGTERM!");
+   * }
+   * ```
+   *
+   * You can also use it as a promise. In this case you can only receive the
+   * first one.
+   *
+   * ```ts
+   * await Deno.signal(Deno.Signal.SIGTERM);
+   * console.log("SIGTERM received!")
+   * ```
+   *
+   * If you want to stop receiving the signals, you can use `.dispose()` method
+   * of the signal stream object.
+   *
+   * ```ts
+   * const sig = Deno.signal(Deno.Signal.SIGTERM);
+   * setTimeout(() => { sig.dispose(); }, 5000);
+   * for await (const _ of sig) {
+   *   console.log("SIGTERM!")
+   * }
+   * ```
+   *
+   * The above for-await loop exits after 5 seconds when `sig.dispose()` is
+   * called.
+   *
+   * NOTE: This functionality is not yet implemented on Windows.
+   */
+  export function signal(signo: number): SignalStream;
+
+  /** **UNSTABLE**: new API, yet to be vetted. */
+  export const signals: {
+    /** Returns the stream of SIGALRM signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGALRM)`. */
+    alarm: () => SignalStream;
+    /** Returns the stream of SIGCHLD signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGCHLD)`. */
+    child: () => SignalStream;
+    /** Returns the stream of SIGHUP signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGHUP)`. */
+    hungup: () => SignalStream;
+    /** Returns the stream of SIGINT signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGINT)`. */
+    interrupt: () => SignalStream;
+    /** Returns the stream of SIGIO signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGIO)`. */
+    io: () => SignalStream;
+    /** Returns the stream of SIGPIPE signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGPIPE)`. */
+    pipe: () => SignalStream;
+    /** Returns the stream of SIGQUIT signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGQUIT)`. */
+    quit: () => SignalStream;
+    /** Returns the stream of SIGTERM signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGTERM)`. */
+    terminate: () => SignalStream;
+    /** Returns the stream of SIGUSR1 signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGUSR1)`. */
+    userDefined1: () => SignalStream;
+    /** Returns the stream of SIGUSR2 signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGUSR2)`. */
+    userDefined2: () => SignalStream;
+    /** Returns the stream of SIGWINCH signals.
+     *
+     * This method is the shorthand for `Deno.signal(Deno.Signal.SIGWINCH)`. */
+    windowChange: () => SignalStream;
+  };
+
+  /** **UNSTABLE**: new API, yet to be vetted
+   *
+   * Set TTY to be under raw mode or not. In raw mode, characters are read and
+   * returned as is, without being processed. All special processing of
+   * characters by the terminal is disabled, including echoing input characters.
+   * Reading from a TTY device in raw mode is faster than reading from a TTY
+   * device in canonical mode.
+   *
+   * ```ts
+   * Deno.setRaw(myTTY.rid, true);
+   * ```
+   */
+  export function setRaw(rid: number, mode: boolean): void;
+
+  /** **UNSTABLE**: needs investigation into high precision time.
+   *
+   * Synchronously changes the access (`atime`) and modification (`mtime`) times
+   * of a file system object referenced by `path`. Given times are either in
+   * seconds (UNIX epoch time) or as `Date` objects.
+   *
+   * ```ts
+   * Deno.utimeSync("myfile.txt", 1556495550, new Date());
+   * ```
+   *
+   * Requires `allow-write` permission. */
+  export function utimeSync(
+    path: string,
+    atime: number | Date,
+    mtime: number | Date,
+  ): void;
+
+  /** **UNSTABLE**: needs investigation into high precision time.
+   *
+   * Changes the access (`atime`) and modification (`mtime`) times of a file
+   * system object referenced by `path`. Given times are either in seconds
+   * (UNIX epoch time) or as `Date` objects.
+   *
+   * ```ts
+   * await Deno.utime("myfile.txt", 1556495550, new Date());
+   * ```
+   *
+   * Requires `allow-write` permission. */
+  export function utime(
+    path: string,
+    atime: number | Date,
+    mtime: number | Date,
+  ): Promise<void>;
+
+  /** **UNSTABLE**: Under consideration to remove `ShutdownMode` entirely.
+   *
+   * Corresponds to `SHUT_RD`, `SHUT_WR`, `SHUT_RDWR` on POSIX-like systems.
+   *
+   * See: http://man7.org/linux/man-pages/man2/shutdown.2.html */
+  export enum ShutdownMode {
+    Read = 0,
+    Write,
+    ReadWrite, // TODO(ry) panics on ReadWrite.
+  }
+
+  /** **UNSTABLE**: Both the `how` parameter and `ShutdownMode` enum are under
+   * consideration for removal.
+   *
+   * Shutdown socket send and receive operations.
+   *
+   * Matches behavior of POSIX shutdown(3).
+   *
+   * ```ts
+   * const listener = Deno.listen({ port: 80 });
+   * const conn = await listener.accept();
+   * Deno.shutdown(conn.rid, Deno.ShutdownMode.Write);
+   * ```
+   */
+  export function shutdown(rid: number, how: ShutdownMode): Promise<void>;
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * A generic transport listener for message-oriented protocols. */
+  export interface DatagramConn extends AsyncIterable<[Uint8Array, Addr]> {
+    /** **UNSTABLE**: new API, yet to be vetted.
+     *
+     * Waits for and resolves to the next message to the `UDPConn`. */
+    receive(p?: Uint8Array): Promise<[Uint8Array, Addr]>;
+    /** UNSTABLE: new API, yet to be vetted.
+     *
+     * Sends a message to the target. */
+    send(p: Uint8Array, addr: Addr): Promise<number>;
+    /** UNSTABLE: new API, yet to be vetted.
+     *
+     * Close closes the socket. Any pending message promises will be rejected
+     * with errors. */
+    close(): void;
+    /** Return the address of the `UDPConn`. */
+    readonly addr: Addr;
+    [Symbol.asyncIterator](): AsyncIterableIterator<[Uint8Array, Addr]>;
+  }
+
+  export interface UnixListenOptions {
+    /** A Path to the Unix Socket. */
+    path: string;
+  }
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * Listen announces on the local transport address.
+   *
+   * ```ts
+   * const listener = Deno.listen({ path: "/foo/bar.sock", transport: "unix" })
+   * ```
+   *
+   * Requires `allow-read` and `allow-write` permission. */
+  export function listen(
+    options: UnixListenOptions & { transport: "unix" },
+  ): Listener;
+
+  /** **UNSTABLE**: new API, yet to be vetted
+   *
+   * Listen announces on the local transport address.
+   *
+   * ```ts
+   * const listener1 = Deno.listenDatagram({
+   *   port: 80,
+   *   transport: "udp"
+   * });
+   * const listener2 = Deno.listenDatagram({
+   *   hostname: "golang.org",
+   *   port: 80,
+   *   transport: "udp"
+   * });
+   * ```
+   *
+   * Requires `allow-net` permission. */
+  export function listenDatagram(
+    options: ListenOptions & { transport: "udp" },
+  ): DatagramConn;
+
+  /** **UNSTABLE**: new API, yet to be vetted
+   *
+   * Listen announces on the local transport address.
+   *
+   * ```ts
+   * const listener = Deno.listenDatagram({
+   *   address: "/foo/bar.sock",
+   *   transport: "unixpacket"
+   * });
+   * ```
+   *
+   * Requires `allow-read` and `allow-write` permission. */
+  export function listenDatagram(
+    options: UnixListenOptions & { transport: "unixpacket" },
+  ): DatagramConn;
+
+  export interface UnixConnectOptions {
+    transport: "unix";
+    path: string;
+  }
+
+  /** **UNSTABLE**:  The unix socket transport is unstable as a new API yet to
+   * be vetted.  The TCP transport is considered stable.
+   *
+   * Connects to the hostname (default is "127.0.0.1") and port on the named
+   * transport (default is "tcp"), and resolves to the connection (`Conn`).
+   *
+   * ```ts
+   * const conn1 = await Deno.connect({ port: 80 });
+   * const conn2 = await Deno.connect({ hostname: "192.0.2.1", port: 80 });
+   * const conn3 = await Deno.connect({ hostname: "[2001:db8::1]", port: 80 });
+   * const conn4 = await Deno.connect({ hostname: "golang.org", port: 80, transport: "tcp" });
+   * const conn5 = await Deno.connect({ path: "/foo/bar.sock", transport: "unix" });
+   * ```
+   *
+   * Requires `allow-net` permission for "tcp" and `allow-read` for "unix". */
+  export function connect(
+    options: ConnectOptions | UnixConnectOptions,
+  ): Promise<Conn>;
+
+  export interface StartTlsOptions {
+    /** A literal IP address or host name that can be resolved to an IP address.
+     * If not specified, defaults to `127.0.0.1`. */
+    hostname?: string;
+    /** Server certificate file. */
+    certFile?: string;
+  }
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   *
+   * Start TLS handshake from an existing connection using
+   * an optional cert file, hostname (default is "127.0.0.1").  The
+   * cert file is optional and if not included Mozilla's root certificates will
+   * be used (see also https://github.com/ctz/webpki-roots for specifics)
+   * Using this function requires that the other end of the connection is
+   * prepared for TLS handshake.
+   *
+   * ```ts
+   * const conn = await Deno.connect({ port: 80, hostname: "127.0.0.1" });
+   * const tlsConn = await Deno.startTls(conn, { certFile: "./certs/my_custom_root_CA.pem", hostname: "127.0.0.1", port: 80 });
+   * ```
+   *
+   * Requires `allow-net` permission.
+   */
+  export function startTls(
+    conn: Conn,
+    options?: StartTlsOptions,
+  ): Promise<Conn>;
+
+  /** **UNSTABLE**: The `signo` argument may change to require the Deno.Signal
+   * enum.
+   *
+   * Send a signal to process under given `pid`. This functionality currently
+   * only works on Linux and Mac OS.
+   *
+   * If `pid` is negative, the signal will be sent to the process group
+   * identified by `pid`.
+   *
+   *      const p = Deno.run({
+   *        cmd: ["python", "-c", "from time import sleep; sleep(10000)"]
+   *      });
+   *
+   *      Deno.kill(p.pid, Deno.Signal.SIGINT);
+   *
+   * Requires `allow-run` permission. */
+  export function kill(pid: number, signo: number): void;
+
+  /** The name of a "powerful feature" which needs permission.
+   *
+   * See: https://w3c.github.io/permissions/#permission-registry
+   *
+   * Note that the definition of `PermissionName` in the above spec is swapped
+   * out for a set of Deno permissions which are not web-compatible. */
+  export type PermissionName =
+    | "run"
+    | "read"
+    | "write"
+    | "net"
+    | "env"
+    | "plugin"
+    | "hrtime";
+
+  /** The current status of the permission.
+   *
+   * See: https://w3c.github.io/permissions/#status-of-a-permission */
+  export type PermissionState = "granted" | "denied" | "prompt";
+
+  export interface RunPermissionDescriptor {
+    name: "run";
+  }
+
+  export interface ReadPermissionDescriptor {
+    name: "read";
+    path?: string;
+  }
+
+  export interface WritePermissionDescriptor {
+    name: "write";
+    path?: string;
+  }
+
+  export interface NetPermissionDescriptor {
+    name: "net";
+    /** Optional url associated with this descriptor.
+     *
+     * If specified: must be a valid url. Expected format: <scheme>://<host_or_ip>[:port][/path]
+     * If the scheme is unknown, callers should specify some scheme, such as x:// na:// unknown://
+     *
+     * See: https://www.iana.org/assignments/uri-schemes/uri-schemes.xhtml */
+    url?: string;
+  }
+
+  export interface EnvPermissionDescriptor {
+    name: "env";
+  }
+
+  export interface PluginPermissionDescriptor {
+    name: "plugin";
+  }
+
+  export interface HrtimePermissionDescriptor {
+    name: "hrtime";
+  }
+
+  /** Permission descriptors which define a permission and can be queried,
+   * requested, or revoked.
+   *
+   * See: https://w3c.github.io/permissions/#permission-descriptor */
+  export type PermissionDescriptor =
+    | RunPermissionDescriptor
+    | ReadPermissionDescriptor
+    | WritePermissionDescriptor
+    | NetPermissionDescriptor
+    | EnvPermissionDescriptor
+    | PluginPermissionDescriptor
+    | HrtimePermissionDescriptor;
+
+  export class Permissions {
+    /** Resolves to the current status of a permission.
+     *
+     * ```ts
+     * const status = await Deno.permissions.query({ name: "read", path: "/etc" });
+     * if (status.state === "granted") {
+     *   data = await Deno.readFile("/etc/passwd");
+     * }
+     * ```
+     */
+    query(desc: PermissionDescriptor): Promise<PermissionStatus>;
+
+    /** Revokes a permission, and resolves to the state of the permission.
+     *
+     *       const status = await Deno.permissions.revoke({ name: "run" });
+     *       assert(status.state !== "granted")
+     */
+    revoke(desc: PermissionDescriptor): Promise<PermissionStatus>;
+
+    /** Requests the permission, and resolves to the state of the permission.
+     *
+     * ```ts
+     * const status = await Deno.permissions.request({ name: "env" });
+     * if (status.state === "granted") {
+     *   console.log(Deno.dir("home");
+     * } else {
+     *   console.log("'env' permission is denied.");
+     * }
+     * ```
+     */
+    request(desc: PermissionDescriptor): Promise<PermissionStatus>;
+  }
+
+  /** **UNSTABLE**: Under consideration to move to `navigator.permissions` to
+   * match web API. It could look like `navigator.permissions.query({ name: Deno.symbols.read })`.
+   */
+  export const permissions: Permissions;
+
+  /** see: https://w3c.github.io/permissions/#permissionstatus */
+  export class PermissionStatus {
+    state: PermissionState;
+    constructor(state: PermissionState);
+  }
+
+  /**  **UNSTABLE**: New API, yet to be vetted.  Additional consideration is still
+   * necessary around the permissions required.
+   *
+   * Get the `hostname` of the machine the Deno process is running on.
+   *
+   * ```ts
+   * console.log(Deno.hostname());
+   * ```
+   *
+   *  Requires `allow-env` permission.
+   */
+  export function hostname(): string;
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   * Synchronously truncates or extends the specified file stream, to reach the
+   * specified `len`.  If `len` is not specified then the entire file contents
+   * are truncated.
+   *
+   * ```ts
+   * // truncate the entire file
+   * const file = Deno.open("my_file.txt", { read: true, write: true, truncate: true, create: true });
+   * Deno.ftruncateSync(file.rid);
+   *
+   * // truncate part of the file
+   * const file = Deno.open("my_file.txt", { read: true, write: true, create: true });
+   * Deno.write(file.rid, new TextEncoder().encode("Hello World"));
+   * Deno.ftruncateSync(file.rid, 7);
+   * const data = new Uint8Array(32);
+   * Deno.readSync(file.rid, data);
+   * console.log(new TextDecoder().decode(data)); // Hello W
+   * ```
+   */
+  export function ftruncateSync(rid: number, len?: number): void;
+
+  /** **UNSTABLE**: new API, yet to be vetted.
+   * Truncates or extends the specified file stream, to reach the specified `len`. If
+   * `len` is not specified then the entire file contents are truncated.
+   *
+   * ```ts
+   * // truncate the entire file
+   * const file = Deno.open("my_file.txt", { read: true, write: true, create: true });
+   * await Deno.ftruncate(file.rid);
+   *
+   * // truncate part of the file
+   * const file = Deno.open("my_file.txt", { read: true, write: true, create: true });
+   * await Deno.write(file.rid, new TextEncoder().encode("Hello World"));
+   * await Deno.ftruncate(file.rid, 7);
+   * const data = new Uint8Array(32);
+   * await Deno.read(file.rid, data);
+   * console.log(new TextDecoder().decode(data)); // Hello W
+   * ```
+   */
+  export function ftruncate(rid: number, len?: number): Promise<void>;
+
+  /* **UNSTABLE**: New API, yet to be vetted.
+   * Synchronously flushes any pending data operations of the given file stream to disk.
+   *  ```ts
+   * const file = Deno.openSync("my_file.txt", { read: true, write: true, create: true });
+   * Deno.writeSync(file.rid, new TextEncoder().encode("Hello World"));
+   * Deno.fdatasyncSync(file.rid);
+   * console.log(new TextDecoder().decode(Deno.readFileSync("my_file.txt"))); // Hello World
+   * ```
+   */
+  export function fdatasyncSync(rid: number): void;
+
+  /** **UNSTABLE**: New API, yet to be vetted.
+   * Flushes any pending data operations of the given file stream to disk.
+   *  ```ts
+   * const file = await Deno.open("my_file.txt", { read: true, write: true, create: true });
+   * await Deno.write(file.rid, new TextEncoder().encode("Hello World"));
+   * await Deno.fdatasync(file.rid);
+   * console.log(new TextDecoder().decode(await Deno.readFile("my_file.txt"))); // Hello World
+   * ```
+   */
+  export function fdatasync(rid: number): Promise<void>;
+
+  /** **UNSTABLE**: New API, yet to be vetted.
+   * Synchronously flushes any pending data and metadata operations of the given file stream to disk.
+   *  ```ts
+   * const file = Deno.openSync("my_file.txt", { read: true, write: true, create: true });
+   * Deno.writeSync(file.rid, new TextEncoder().encode("Hello World"));
+   * Deno.ftruncateSync(file.rid, 1);
+   * Deno.fsyncSync(file.rid);
+   * console.log(new TextDecoder().decode(Deno.readFileSync("my_file.txt"))); // H
+   * ```
+   */
+  export function fsyncSync(rid: number): void;
+
+  /** **UNSTABLE**: New API, yet to be vetted.
+   * Flushes any pending data and metadata operations of the given file stream to disk.
+   *  ```ts
+   * const file = await Deno.open("my_file.txt", { read: true, write: true, create: true });
+   * await Deno.write(file.rid, new TextEncoder().encode("Hello World"));
+   * await Deno.ftruncate(file.rid, 1);
+   * await Deno.fsync(file.rid);
+   * console.log(new TextDecoder().decode(await Deno.readFile("my_file.txt"))); // H
+   * ```
+   */
+  export function fsync(rid: number): Promise<void>;
+
+  /** **UNSTABLE**: New API, yet to be vetted.
+   * Synchronously returns a `Deno.FileInfo` for the given file stream.
+   *
+   * ```ts
+   * const file = Deno.openSync("file.txt", { read: true });
+   * const fileInfo = Deno.fstatSync(file.rid);
+   * assert(fileInfo.isFile);
+   * ```
+   */
+  export function fstatSync(rid: number): FileInfo;
+
+  /** **UNSTABLE**: New API, yet to be vetted.
+   * Returns a `Deno.FileInfo` for the given file stream.
+   *
+   * ```ts
+   * const file = await Deno.open("file.txt", { read: true });
+   * const fileInfo = await Deno.fstat(file.rid);
+   * assert(fileInfo.isFile);
+   * ```
+   */
+  export function fstat(rid: number): Promise<FileInfo>;
+
+  /** **UNSTABLE**: New API, yet to be vetted.
+   * The pid of the current process's parent.
+   */
+  export const ppid: number;
+
+  /** **UNSTABLE**: New API, yet to be vetted.
+   * A custom HttpClient for use with `fetch`.
+   *
+   * ```ts
+   * const client = new Deno.createHttpClient({ caFile: "./ca.pem" });
+   * const req = await fetch("https://myserver.com", { client });
+   * ```
+   */
+  export class HttpClient {
+    rid: number;
+    close(): void;
+  }
+
+  /** **UNSTABLE**: New API, yet to be vetted.
+   * The options used when creating a [HttpClient].
+   */
+  interface CreateHttpClientOptions {
+    /** A certificate authority to use when validating TLS certificates.
+     *
+     * Requires `allow-read` permission.
+     */
+    caFile?: string;
+  }
+
+  /** **UNSTABLE**: New API, yet to be vetted.
+   * Create a custom HttpClient for to use with `fetch`.
+   *
+   * ```ts
+   * const client = new Deno.createHttpClient({ caFile: "./ca.pem" });
+   * const req = await fetch("https://myserver.com", { client });
+   * ```
+   */
+  export function createHttpClient(
+    options: CreateHttpClientOptions,
+  ): HttpClient;
+}
+
+declare function fetch(
+  input: Request | URL | string,
+  init?: RequestInit & { client: Deno.HttpClient },
+): Promise<Response>;

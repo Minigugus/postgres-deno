@@ -3,9 +3,6 @@
     "lib": [
       "ES2015"
     ],
-    "types": [
-      "node"
-    ],
     "esModuleInterop": true,
     "strict": true,
     "noImplicitAny": true
