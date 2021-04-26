@@ -4,18 +4,13 @@
 
 // docker run -it --rm -p 5432:5432 -e POSTGRES_USER=$USER -v /run/postgresql:/run/postgresql postgres
 
+import { exec } from './bootstrap.js'
+
 import { not, t } from './test.js' // eslint-disable-line
 
 const __dirname = import.meta.url.slice(0, import.meta.url.lastIndexOf('/'))
 
 const join = (...args) => new URL(args.join('/'), 'file:///').pathname
-const exec = async (...cmd) => {
-  const process = Deno.run({
-    cmd: ['sh', '-c', cmd.join(' ')]
-  })
-  await process.status();
-  process.close();
-};
 
 import postgres, { toPascal, toCamel, toKebab } from '../lib/index.js'
 import { hasCryptoSupport } from '../lib/deno.js'
@@ -29,11 +24,6 @@ const ignoreIfCryptoMissing = !hasCryptoSupport;
 
 const login = {
   user: 'postgres_js_test'
-}
-
-const login_clear = {
-  user: 'postgres_js_test_clear',
-  pass: 'postgres_js_test_clear'
 }
 
 const login_md5 = {
@@ -55,12 +45,6 @@ const options = {
   max: 1
 }
 
-await exec('dropdb ' + options.db + ';createdb ' + options.db);
-await ([login, login_clear, login_md5, login_scram].reduce(async(acc, x) =>
-  acc.then(() => exec('psql -c "create user ' + x.user + (x.pass ? ' password \'' + x.pass + '\'' : '') +';grant all on database ' + options.db + ' to ' + x.user + '"')),
-  Promise.resolve()
-))
-
 const sql = postgres(options)
 
 t('Connects with no options', async() => {
@@ -72,13 +56,15 @@ t('Connects with no options', async() => {
   return [1, result]
 })
 
-t('Uses default database without slash', async() =>
-  ['postgres', postgres('postgres://localhost').options.database]
-)
+t('Uses default database without slash', async() => {
+  const sql = postgres('postgres://localhost')
+  return [sql.options.user, sql.options.database]
+})
 
-t('Uses default database with slash', async() =>
-  ['postgres', postgres('postgres://localhost/').options.database]
-)
+t('Uses default database with slash', async() => {
+  const sql = postgres('postgres://localhost/')
+  return [sql.options.user, sql.options.database]
+})
 
 t('Result is array', async() =>
   [true, Array.isArray(await sql`select 1`)]
@@ -320,37 +306,69 @@ not('Connect using SSL', async() => // TODO : SSL support
   }))]
 )
 
+not('Connect using SSL require', async() =>
+  [true, (await new Promise((resolve, reject) => {
+    postgres({
+      ssl: 'require',
+      idle_timeout: options.idle_timeout
+    })`select 1`.then(() => resolve(true), reject)
+  }))]
+)
+
+t('Connect using SSL prefer', async() => {
+  await exec('psql -c "alter system set ssl=off"')
+  await exec('psql -c "select pg_reload_conf()"')
+
+  const sql = postgres({
+    ssl: 'prefer',
+    idle_timeout: options.idle_timeout
+  })
+
+  return [
+    1, (await sql`select 1 as x`)[0].x,
+    await exec('psql -c "alter system set ssl=on"'),
+    await exec('psql -c "select pg_reload_conf()"')
+  ]
+})
+
 t('Login without password', async() => {
   return [true, (await postgres({ ...options, ...login })`select true as x`)[0].x]
 })
 
-t('Login using cleartext', async() => {
-  return [true, (await postgres({ ...options, ...login_clear })`select true as x`)[0].x]
+t('Login using MD5', { ignore: ignoreIfCryptoMissing }, async() => {
+  return [true, (await postgres({ ...options, ...login_md5 })`select true as x`)[0].x]
 })
 
-t('Login using MD5', async() => {
-  return [true, (await postgres({ ...options, ...login_md5 })`select true as x`)[0].x]
-}, ignoreIfCryptoMissing)
-
-t('Login using scram-sha-256', async() => {
+t('Login using scram-sha-256', { ignore: ignoreIfCryptoMissing }, async() => {
   return [true, (await postgres({ ...options, ...login_scram })`select true as x`)[0].x]
-}, ignoreIfCryptoMissing)
+})
 
-t('Support dynamic password function', async() => {
+t('Parallel connections using scram-sha-256', {
+  timeout: 2000
+}, async() => {
+  const sql = postgres({ ...options, ...login_scram })
+  return [true, (await Promise.all([
+    sql`select true as x, pg_sleep(0.2)`,
+    sql`select true as x, pg_sleep(0.2)`,
+    sql`select true as x, pg_sleep(0.2)`
+  ]))[0][0].x]
+})
+
+t('Support dynamic password function', { ignore: ignoreIfCryptoMissing }, async() => {
   return [true, (await postgres({
     ...options,
     ...login_scram,
     pass: () => 'postgres_js_test_scram'
   })`select true as x`)[0].x]
-}, ignoreIfCryptoMissing)
+})
 
-t('Support dynamic async password function', async() => {
+t('Support dynamic async password function', { ignore: ignoreIfCryptoMissing }, async() => {
   return [true, (await postgres({
     ...options,
     ...login_scram,
     pass: () => Promise.resolve('postgres_js_test_scram')
   })`select true as x`)[0].x]
-}, ignoreIfCryptoMissing)
+})
 
 t('Point type', async() => {
   const sql = postgres({
@@ -571,6 +589,13 @@ t('listen and notify with weird name', async() => { // FIXME Unstable
   )]
 })
 
+t('listen and notify with upper case', async() =>
+  ['works', await new Promise(async resolve => {
+    await sql.listen('withUpperChar', resolve)
+    sql.notify('withUpperChar', 'works')
+  })]
+)
+
 t('listen reconnects', async() => {
   const listener = postgres(options)
       , xs = []
@@ -584,6 +609,69 @@ t('listen reconnects', async() => {
   listener.end()
 
   return ['ab', xs.join('')]
+})
+
+t('listen result reports correct connection state after reconnection', async() => {
+  const listener = postgres(options)
+      , xs = []
+
+  const result = await listener.listen('test', x => xs.push(x))
+  const initialPid = result.state.pid
+  await sql.notify('test', 'a')
+  await sql`select pg_terminate_backend(${ initialPid }::int)`
+  await delay(50)
+  listener.end()
+
+  return [result.state.pid !== initialPid, true]
+})
+
+t('unlisten removes subscription', async() => {
+  const listener = postgres(options)
+      , xs = []
+
+  const { unlisten } = await listener.listen('test', x => xs.push(x))
+  await listener.notify('test', 'a')
+  await delay(50)
+  await unlisten()
+  await listener.notify('test', 'b')
+  await delay(50)
+  listener.end()
+
+  return ['a', xs.join('')]
+})
+
+t('listen after unlisten', async() => {
+  const listener = postgres(options)
+      , xs = []
+
+  const { unlisten } = await listener.listen('test', x => xs.push(x))
+  await listener.notify('test', 'a')
+  await delay(50)
+  await unlisten()
+  await listener.notify('test', 'b')
+  await delay(50)
+  await listener.listen('test', x => xs.push(x))
+  await listener.notify('test', 'c')
+  await delay(50)
+  listener.end()
+
+  return ['ac', xs.join('')]
+})
+
+t('multiple listeners and unlisten one', async() => {
+  const listener = postgres(options)
+      , xs = []
+
+  await listener.listen('test', x => xs.push('1', x))
+  const s2 = await listener.listen('test', x => xs.push('2', x))
+  await listener.notify('test', 'a')
+  await delay(50)
+  await s2.unlisten()
+  await listener.notify('test', 'b')
+  await delay(50)
+  listener.end()
+
+  return ['1a2a1b', xs.join('')]
 })
 
 t('responds with server parameters (application_name)', async() =>
@@ -659,6 +747,37 @@ t('sql().finally throws not tagged error', async() => {
     error = e.code
   }
   return ['NOT_TAGGED_CALL', error]
+})
+
+t('little bobby tables', async() => {
+  const name = 'Robert\'); DROP TABLE students;--'
+
+  await sql`create table students (name text, age int)`
+  await sql`insert into students (name) values (${ name })`
+
+  return [
+    name, (await sql`select name from students`)[0].name,
+    await sql`drop table students`
+  ]
+})
+
+t('Connection errors are caught using begin()', {
+  timeout: 20000
+}, async() => {
+  let error
+  try {
+    const sql = postgres({ host: 'wat' })
+
+    await sql.begin(async(sql) => {
+      await sql`insert into test (label, value) values (${1}, ${2})`
+    })
+
+    await sql.end()
+  } catch (err) {
+    error = err
+  }
+
+  return ['failed to lookup address information: Name or service not known', error.message]
 })
 
 t('dynamic column name', async() => {
@@ -772,14 +891,14 @@ t('Multiple statements', async() =>
   `).then(([, [x]]) => x.a)]
 )
 
-t('throws correct error when authentication fails', async() => {
+t('throws correct error when authentication fails', { ignore: ignoreIfCryptoMissing }, async() => {
   const sql = postgres({
     ...options,
     ...login_md5,
     pass: 'wrong'
   })
   return ['28P01', await sql`select 1`.catch(e => e.code)] // FIXME : Password ignored ?
-}, ignoreIfCryptoMissing)
+})
 
 t('notice works', async() => {
   let notice
@@ -968,9 +1087,14 @@ t('Error contains query string', async() => [
   (await sql`selec 1`.catch(err => err.query))
 ])
 
-t('Error contains query parameters', async() => [
+t('Error contains query serialized parameters', async() => [
   '1',
   (await sql`selec ${ 1 }`.catch(err => err.parameters[0].value))
+])
+
+t('Error contains query raw parameters', async() => [
+  1,
+  (await sql`selec ${ 1 }`.catch(err => err.parameters[0].raw))
 ])
 
 t('Query string is not enumerable', async() => {
@@ -1023,7 +1147,7 @@ t('connect_timeout throws proper error', async() => [
   })`select 1`.catch(e => e.code) // FIXME : Race condition because of missing "setImmediate"
 ])
 
-t('requests works after single connect_timeout', async() => {
+t('requests works after single connect_timeout', { ignore: ignoreIfCryptoMissing }, async() => {
   let first = true
 
   const sql = postgres({
@@ -1040,7 +1164,7 @@ t('requests works after single connect_timeout', async() => {
       (await sql`select 1 as x`)[0].x
     ].join(',')
   ]
-}, ignoreIfCryptoMissing)
+})
 
 t('Postgres errors are of type PostgresError', async() =>
   [true, (await sql`bad keyword`.catch(e => e)) instanceof sql.PostgresError]
@@ -1091,10 +1215,34 @@ t('Automatically creates prepared statements', async() => {
   return [result[0].statement, 'select * from pg_prepared_statements', await sql.end()]
 })
 
-t('no_prepare: true disables prepared transactions', async() => {
+t('no_prepare: true disables prepared transactions (deprecated)', async() => {
   const sql = postgres({ ...options, no_prepare: true })
   const result = await sql`select * from pg_prepared_statements`
   return [0, result.count, await sql.end()]
+})
+
+t('prepare: false disables prepared transactions', async() => {
+  const sql = postgres({ ...options, prepare: false })
+  const result = await sql`select * from pg_prepared_statements`
+  return [0, result.count]
+})
+
+t('prepare: true enables prepared transactions', async() => {
+  const sql = postgres({ ...options, prepare: true })
+  const result = await sql`select * from pg_prepared_statements`
+  return [result[0].statement, 'select * from pg_prepared_statements']
+})
+
+t('prepares unsafe query when "prepare" option is true', async() => {
+  const sql = postgres({ ...options, prepare: true })
+  const result = await sql.unsafe('select * from pg_prepared_statements where name <> $1', ["bla"], { prepare: true })
+  return [result[0].statement, 'select * from pg_prepared_statements where name <> $1']
+})
+
+t('does not prepare unsafe query by default', async() => {
+  const sql = postgres({ ...options, prepare: true });
+  const result = await sql.unsafe('select * from pg_prepared_statements where name <> $1', ["bla"])
+  return [0, result.count]
 })
 
 t('Catches connection config errors', async() => {
@@ -1121,5 +1269,27 @@ t('Catches query format errors', async() => [
   'wat',
   await sql.unsafe({ toString: () => { throw new Error('wat') } }).catch((e) => e.message),
 ])
+
+// Require a proper setup
+t('Multiple hosts', {
+  timeout: 10000
+}, async() => {
+  const sql = postgres('postgres://localhost:5432,localhost:5433', { idle_timeout: options.idle_timeout })
+      , result = []
+
+  const a = (await sql`show data_directory`)[0].data_directory
+  result.push((await sql`select setting as x from pg_settings where name = 'port'`)[0].x)
+  await exec('pg_ctl stop -D "' + a + '"')
+
+  const b = (await sql`show data_directory`)[0].data_directory
+  result.push((await sql`select setting as x from pg_settings where name = 'port'`)[0].x)
+  await exec('pg_ctl start -D "' + a + '" -w -l "' + a + '/postgresql.log"')
+  await exec('pg_ctl stop -D "' + b + '"')
+
+  result.push((await sql`select setting as x from pg_settings where name = 'port'`)[0].x)
+  await exec('pg_ctl start -o "-p 5433" -D "' + b + '" -w -l "' + b + '/postgresql.log"')
+
+  return ['5432,5433,5432', result.join(',')]
+})
 
 t('End global sql', async() => [undefined, await sql.end()])

@@ -53,13 +53,13 @@ You can use either a `postgres://` url connection string or the options to defin
 
 ```js
 const sql = postgres('postgres://username:password@host:port/database', {
-  host            : '',         // Postgres ip address or domain name
-  port            : 5432,       // Postgres server port
+  host            : '',         // Postgres ip address[s] or domain name[s]
+  port            : 5432,       // Postgres server port[s]
   path            : '',         // unix socket path (usually '/tmp')
   database        : '',         // Name of database to connect to
   username        : '',         // Username of database user
   password        : '',         // Password of database user
-  ssl             : false,      // Connect using SSL [NOT WORKING YET]
+  ssl             : false,      // true, prefer, require [NOT WORKING YET]
   max             : 10,         // Max number of connections
   idle_timeout    : 0,          // Idle connection timeout in seconds
   connect_timeout : 30,         // Connect timeout in seconds
@@ -76,27 +76,46 @@ const sql = postgres('postgres://username:password@host:port/database', {
   connection      : {
     application_name  : 'postgres.js', // Default application_name
     ...                                // Other connection parameters
-  }
+  },
+  target_session_attrs : null   // Use 'read-write' with multiple hosts to 
+                                // ensure only connecting to primary
 })
 ```
-
-Currently, the `ssl` option is **NOT WORKING** and setting it will result in a `SSL_NOT_SUPPORTED_YET` error. PR are welcome.
 
 ### Environment Variables for Options
 
 It is also possible to connect to the database without a connection string or options, which will read the options from the environment variables in the table below (require `--allow-env`):
+### SSL
+
+Currently, the `ssl` option is **NOT WORKING** for the Deno version and setting it will result in a `SSL_NOT_SUPPORTED_YET` error. PR are welcome.
+
+### Multi host connections - High Availability (HA)
+
+Connection uri strings with multiple hosts works like in [`psql multiple host uris`](https://www.postgresql.org/docs/13/libpq-connect.html#LIBPQ-MULTIPLE-HOSTS)
+
+Connecting to the specified hosts/ports will be tried in order, and on a successfull connection retries will be reset. This ensures that hosts can come up and down seamless to your application.
+
+If you specify `target_session_attrs: 'read-write'` or `PGTARGETSESSIONATTRS=read-write` Postgres.js will only connect to a writeable host allowing for zero down time failovers.
+
+### Environment Variables for Options
+
+It is also possible to connect to the database without a connection string or any options. Postgres.js will fall back to the common environment variables used by `psql` as in the table below:
 
 ```js
 const sql = postgres()
 ```
 
-| Option     | Environment Variables    |
-| ---------- | ------------------------ |
-| `host`     | `PGHOST`                 |
-| `port`     | `PGPORT`                 |
-| `database` | `PGDATABASE`             |
-| `username` | `PGUSERNAME` or `PGUSER` |
-| `password` | `PGPASSWORD`             |
+| Option            | Environment Variables    |
+| ----------------- | ------------------------ |
+| `host`            | `PGHOST`                 |
+| `port`            | `PGPORT`                 |
+| `database`        | `PGDATABASE`             |
+| `username`        | `PGUSERNAME` or `PGUSER` |
+| `password`        | `PGPASSWORD`             |
+| `idle_timeout`    | `PGIDLE_TIMEOUT`         |
+' `connect_timeout` | `PGCONNECT_TIMEOUT`      |
+
+**NOTE**: With Deno, you have to explicitly grant permission to access environment variables with the command line flag `--allow-env`. 
 
 ## Query ```sql` ` -> Promise```
 
@@ -116,6 +135,46 @@ const [new_user] = await sql`
 
 // new_user = { user_id: 1, name: 'Murray', age: 68 }
 ```
+
+
+#### TypeScript support
+
+`postgres` has TypeScript support. You can pass a row list type for your queries in this way:
+```ts
+interface User {
+  id: number
+  name: string
+}
+
+const users = await sql<User[]>`SELECT * FROM users`
+users[0].id // ok => number
+users[1].name // ok => string
+users[0].invalid // fails: `invalid` does not exists on `User`
+```
+
+However, be sure to check the array length to avoid accessing properties of `undefined` rows:
+```ts
+const users = await sql<User[]>`SELECT * FROM users WHERE id = ${id}`
+if (!users.length)
+  throw new Error('Not found')
+return users[0]
+```
+
+You can also prefer destructuring when you only care about a fixed number of rows.
+In this case, we recommand you to prefer using tuples to handle `undefined` properly:
+```ts
+const [user]: [User?] = await sql`SELECT * FROM users WHERE id = ${id}`
+if (!user) // => User | undefined
+  throw new Error('Not found')
+return user // => User
+
+// NOTE:
+const [first, second]: [User?] = await sql`SELECT * FROM users WHERE id = ${id}` // fails: `second` does not exist on `[User?]`
+// vs
+const [first, second] = await sql<[User?]>`SELECT * FROM users WHERE id = ${id}` // ok but should fail
+```
+
+All the public API is typed. Also, TypeScript support is still in beta. Feel free to open an issue if you have trouble with types.
 
 #### Query parameters
 
@@ -484,12 +543,12 @@ const [custom] = sql`
     rect
   ) values (
     'wat',
-    ${ sql.types.rect({ x: 13, y: 37: width: 42, height: 80 }) }
+    ${ sql.types.rect({ x: 13, y: 37, width: 42, height: 80 }) }
   )
   returning *
 `
 
-// custom = { name: 'wat', rect: { x: 13, y: 37: width: 42, height: 80 } }
+// custom = { name: 'wat', rect: { x: 13, y: 37, width: 42, height: 80 } }
 
 ```
 
@@ -541,6 +600,18 @@ This means that we get a much simpler story for error handling and reconnections
 Any query which was already sent over the wire will be rejected if the connection is lost. It'll automatically defer to the error handling you have for that query, and since connections are lazy it'll automatically try to reconnect the next time a query is made. The benefit of this is no weird generic "onerror" handler that tries to get things back to normal, and also simpler application code since you don't have to handle errors out of context.
 
 There are no guarantees about queries executing in order unless using a transaction with `sql.begin()` or setting `max: 1`. Of course doing a series of queries, one awaiting the other will work as expected, but that's just due to the nature of js async/promise handling, so it's not necessary for this library to be concerned with ordering.
+
+### Idle timeout
+
+Connections will by default not close until `.end()` is called, but often it is useful to have them close when there is no activity or if using Postgres.js in eg. Lamdas / Serverless environments. This can be done using the `idle_timeout` option to specify the amount of seconds to wait before automatically closing an idle connection.
+
+For example, to close idle connections after 2 seconds:
+
+```js
+const sql = postgres({
+  idle_timeout: 2
+})
+```
 
 ## Prepared statements
 
