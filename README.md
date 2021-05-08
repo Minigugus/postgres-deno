@@ -24,13 +24,13 @@ Some fail from time to time due to a race condition that occurs because there is
 
 **Install**
 ```js
-import postgres from 'https://github.com/Minigugus/postgres-deno/raw/master/mod.js'
+import postgres from 'https://deno.land/x/postgresql/mod.js'
 ```
 
 **Use**
 ```js
 // db.js
-import postgres from 'https://github.com/Minigugus/postgres-deno/raw/master/mod.js'
+import postgres from 'https://deno.land/x/postgresql/mod.js'
 
 const sql = postgres({ ...options }) // will default to the same as psql
 
