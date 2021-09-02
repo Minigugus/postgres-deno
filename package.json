@@ -1,13 +1,13 @@
 {
-  "name": "postgres-deno",
-  "version": "2.0.0-beta.5",
-  "description": "Fastest full featured PostgreSQL client for Deno",
+  "name": "postgres",
+  "version": "2.0.0-beta.8",
+  "description": "Fastest full featured PostgreSQL client for Node.js",
   "main": "lib/index.js",
-  "type": "module",
   "types": "types/index.d.ts",
   "typings": "types/index.d.ts",
+  "type": "commonjs",
   "scripts": {
-    "test": "deno test --allow-run --allow-net --allow-read --allow-env tests/index.js",
+    "test": "node tests/index.js",
     "lint": "eslint lib && eslint tests",
     "prepublishOnly": "npm run lint && npm test"
   },
@@ -16,9 +16,6 @@
     "/types"
   ],
   "author": "Rasmus Porsager <rasmus@porsager.com>",
-  "contributors": [
-    "Minigugus <https://github.com/Minigugus>"
-  ],
   "license": "Unlicense",
   "repository": "porsager/postgres",
   "keywords": [
