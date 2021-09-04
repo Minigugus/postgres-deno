@@ -1,4 +1,4 @@
-/// <reference path="../deno.d.ts" />
+
 
 /* eslint no-console: 0 */
 
@@ -13,7 +13,6 @@ const __dirname = import.meta.url.slice(0, import.meta.url.lastIndexOf('/'))
 const join = (...args) => new URL(args.join('/'), 'file:///').pathname
 
 import postgres, { toPascal, toCamel, toKebab } from '../lib/index.js'
-import { hasCryptoSupport } from '../lib/deno.js'
 
 const delay = ms => new Promise(r => setTimeout(r, ms))
 
