@@ -53,34 +53,34 @@ You can use either a `postgres://` url connection string or the options to defin
 
 ```js
 const sql = postgres('postgres://username:password@host:port/database', {
-  host            : '',         // Postgres ip address[s] or domain name[s]
-  port            : 5432,       // Postgres server port[s]
-  path            : '',         // unix socket path (usually '/tmp')
-  database        : '',         // Name of database to connect to
-  username        : '',         // Username of database user
-  password        : '',         // Password of database user
-  ssl             : false,      // true, prefer, require [NOT WORKING YET]
-  max             : 10,         // Max number of connections
-  idle_timeout    : 0,          // Idle connection timeout in seconds
-  connect_timeout : 30,         // Connect timeout in seconds
-  no_prepare      : false,      // No automatic creation of prepared statements
-  types           : [],         // Array of custom types, see more below
-  onnotice        : fn          // Defaults to console.log
-  onparameter     : fn          // (key, value) when server param change
-  debug           : fn          // Is called with (connection, query, params)
-  transform       : {
-    column            : fn, // Transforms incoming column names
-    value             : fn, // Transforms incoming row values
-    row               : fn  // Transforms entire rows
+  host                 : '',            // Postgres ip address[s] or domain name[s]
+  port                 : 5432,          // Postgres server port[s]
+  path                 : '',            // unix socket path (usually '/tmp')
+  database             : '',            // Name of database to connect to
+  username             : '',            // Username of database user
+  password             : '',            // Password of database user
+  ssl                  : false,         // true, prefer, require, tls.connect options
+  max                  : 10,            // Max number of connections
+  idle_timeout         : 0,             // Idle connection timeout in seconds
+  connect_timeout      : 30,            // Connect timeout in seconds
+  no_prepare           : false,         // No automatic creation of prepared statements
+  types                : [],            // Array of custom types, see more below
+  onnotice             : fn,            // Defaults to console.log
+  onparameter          : fn,            // (key, value) when server param change
+  debug                : fn,            // Is called with (connection, query, params)
+  transform            : {
+    column             : fn,            // Transforms incoming column names
+    value              : fn,            // Transforms incoming row values
+    row                : fn             // Transforms entire rows
   },
-  connection      : {
-    application_name  : 'postgres.js', // Default application_name
-    ...                                // Other connection parameters
+  connection           : {
+    application_name   : 'postgres.js', // Default application_name
+    ...                                 // Other connection parameters
   },
-  target_session_attrs : null   // Use 'read-write' with multiple hosts to 
-                                // ensure only connecting to primary
-  fetch_array_types    : true   // Disable automatically fetching array types
-                                // on initial connection.
+  target_session_attrs : null,          // Use 'read-write' with multiple hosts to 
+                                        // ensure only connecting to primary
+  fetch_array_types    : true,          // Disable automatically fetching array types
+                                        // on initial connection.
 })
 ```
 
@@ -146,6 +146,42 @@ const [new_user] = await sql`
 // new_user = { user_id: 1, name: 'Murray', age: 68 }
 ```
 
+#### Query parameters
+
+Parameters are automatically inferred and handled by Postgres so that SQL injection isn't possible. No special handling is necessary, simply use JS tagged template literals as usual.
+
+```js
+
+let search = 'Mur'
+const users = await sql`
+  select
+    name,
+    age
+  from users
+  where
+    name like ${ search + '%' }
+`
+
+// users = [{ name: 'Murray', age: 68 }]
+
+
+```
+
+> Be careful with quotation marks here. Because Postgres infers the types, you don't need to wrap your interpolated parameters in quotes like `'${name}'`. In fact, this will cause an error because the tagged template replaces `${name}` with `$1` in the query string, leaving Postgres to do the interpolation. If you wrap that in a string, Postgres will see `'$1'` and interpret it as a string as opposed to a parameter.
+
+#### Arrays
+Arrays will be handled by replacement parameters too, so `where in` queries are also simple.
+
+```js
+
+const users = await sql`
+  select
+    *
+  from users
+  where age in (${ [68, 75, 23] })
+`
+
+```
 
 #### TypeScript support
 
@@ -185,42 +221,6 @@ const [first, second] = await sql<[User?]>`SELECT * FROM users WHERE id = ${id}`
 ```
 
 All the public API is typed. Also, TypeScript support is still in beta. Feel free to open an issue if you have trouble with types.
-
-#### Query parameters
-
-Parameters are automatically inferred and handled by Postgres so that SQL injection isn't possible. No special handling is necessary, simply use JS tagged template literals as usual.
-
-Be careful with quotation marks here. Because Postgres infers the types, you don't need to wrap your interpolated parameters in quotes like `'${name}'`. In fact, this will cause an error because the tagged template replaces `${name}` with `$1` in the query string, leaving Postgres to do the interpolation. If you wrap that in a string, Postgres will see `'$1'` and interpret it as a string as opposed to a parameter.
-
-```js
-
-let search = 'Mur'
-
-const users = await sql`
-  select 
-    name, 
-    age 
-  from users
-  where 
-    name like ${ search + '%' }
-`
-
-// users = [{ name: 'Murray', age: 68 }]
-
-```
-
-Arrays will be handled by replacement parameters too, so `where in` queries are also simple.
-
-```js
-
-const users = await sql`
-  select 
-    * 
-  from users
-  where age in (${ [68, 75, 23] })
-`
-
-```
 
 ## Stream ```sql` `.stream(fn) -> Promise```
 
@@ -546,26 +546,22 @@ Adding Query helpers is the recommended approach which can be done like this:
 const sql = postgres({
   types: {
     rect: {
-      /**
-       * The pg_types oid to pass to the db along with the serialized value.
-       */
+      // The pg_types oid to pass to the db along with the serialized value.
       to        : 1337,
-      /**
-       * An array of pg_types oids to handle when parsing values coming from the db.
-       */
+      
+      // An array of pg_types oids to handle when parsing values coming from the db
       from      : [1337],
-      /**
-       * Function that transform values before sending them to the db.
-       */
+
+      //Function that transform values before sending them to the db.
       serialize : ({ x, y, width, height }) => [x, y, width, height],
-      /**
-       * Function that transforms values coming from the db.
-       */
+
+      // Function that transforms values coming from the db.
       parse     : ([x, y, width, height]) => { x, y, width, height }
     }
   }
 })
 
+// Now you can use sql.types.rect() as specified above
 const [custom] = sql`
   insert into rectangles (
     name,
