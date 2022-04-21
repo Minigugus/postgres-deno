@@ -59,34 +59,44 @@ You can use either a `postgres://` url connection string or the options to defin
 
 ```js
 const sql = postgres('postgres://username:password@host:port/database', {
-  host            : '',         // Postgres ip address[s] or domain name[s]
-  port            : 5432,       // Postgres server port[s]
-  path            : '',         // unix socket path (usually '/tmp')
-  database        : '',         // Name of database to connect to
-  username        : '',         // Username of database user
-  password        : '',         // Password of database user
-  ssl             : false,      // true, prefer, require [NOT WORKING YET]
-  max             : 10,         // Max number of connections
-  idle_timeout    : 0,          // Idle connection timeout in seconds
-  connect_timeout : 30,         // Connect timeout in seconds
-  no_prepare      : false,      // No automatic creation of prepared statements
-  types           : [],         // Array of custom types, see more below
-  onnotice        : fn          // Defaults to console.log
-  onparameter     : fn          // (key, value) when server param change
-  debug           : fn          // Is called with (connection, query, params)
-  transform       : {
-    column            : fn, // Transforms incoming column names
-    value             : fn, // Transforms incoming row values
-    row               : fn  // Transforms entire rows
+  host                 : '',            // Postgres ip address[s] or domain name[s]
+  port                 : 5432,          // Postgres server port[s]
+  path                 : '',            // unix socket path (usually '/tmp')
+  database             : '',            // Name of database to connect to
+  username             : '',            // Username of database user
+  password             : '',            // Password of database user
+  ssl                  : false,         // true, prefer, require, [NOT WORKING YET]
+  max                  : 10,            // Max number of connections
+  idle_timeout         : 0,             // Idle connection timeout in seconds
+  connect_timeout      : 30,            // Connect timeout in seconds
+  no_prepare           : false,         // No automatic creation of prepared statements
+  types                : [],            // Array of custom types, see more below
+  onnotice             : fn,            // Defaults to console.log
+  onparameter          : fn,            // (key, value) when server param change
+  debug                : fn,            // Is called with (connection, query, params)
+  transform            : {
+    column             : fn,            // Transforms incoming column names
+    value              : fn,            // Transforms incoming row values
+    row                : fn             // Transforms entire rows
   },
-  connection      : {
-    application_name  : 'postgres.js', // Default application_name
-    ...                                // Other connection parameters
+  connection           : {
+    application_name   : 'postgres.js', // Default application_name
+    ...                                 // Other connection parameters
   },
-  target_session_attrs : null   // Use 'read-write' with multiple hosts to 
-                                // ensure only connecting to primary
+  target_session_attrs : null,          // Use 'read-write' with multiple hosts to 
+                                        // ensure only connecting to primary
+  fetch_array_types    : true,          // Disable automatically fetching array types
+                                        // on initial connection.
 })
 ```
+
+### Auto fetching of array types
+
+When Postgres.js first connects to the database it automatically fetches array type information.  
+
+If you have revoked access to `pg_catalog` this feature will no longer work and will need to be disabled.  
+
+You can disable fetching array types by setting `fetch_array_types` to `false` when creating an instance.
 
 ### Environment Variables for Options
 
@@ -119,13 +129,13 @@ const sql = postgres()
 | `username`        | `PGUSERNAME` or `PGUSER` |
 | `password`        | `PGPASSWORD`             |
 | `idle_timeout`    | `PGIDLE_TIMEOUT`         |
-' `connect_timeout` | `PGCONNECT_TIMEOUT`      |
+| `connect_timeout` | `PGCONNECT_TIMEOUT`      |
 
 **NOTE**: With Deno, you have to explicitly grant permission to access environment variables with the command line flag `--allow-env`. 
 
 ## Query ```sql` ` -> Promise```
 
-A query will always return a `Promise` which resolves to a results array `[...]{ rows, command }`. Destructuring is great to immediately access the first element.
+A query will always return a `Promise` which resolves to a results array `[...]{ count, command, columns }`. Destructuring is great to immediately access the first element.
 
 ```js
 
@@ -142,6 +152,42 @@ const [new_user] = await sql`
 // new_user = { user_id: 1, name: 'Murray', age: 68 }
 ```
 
+#### Query parameters
+
+Parameters are automatically inferred and handled by Postgres so that SQL injection isn't possible. No special handling is necessary, simply use JS tagged template literals as usual.
+
+```js
+
+let search = 'Mur'
+const users = await sql`
+  select
+    name,
+    age
+  from users
+  where
+    name like ${ search + '%' }
+`
+
+// users = [{ name: 'Murray', age: 68 }]
+
+
+```
+
+> Be careful with quotation marks here. Because Postgres infers the types, you don't need to wrap your interpolated parameters in quotes like `'${name}'`. In fact, this will cause an error because the tagged template replaces `${name}` with `$1` in the query string, leaving Postgres to do the interpolation. If you wrap that in a string, Postgres will see `'$1'` and interpret it as a string as opposed to a parameter.
+
+#### Arrays
+Arrays will be handled by replacement parameters too, so `where in` queries are also simple.
+
+```js
+
+const users = await sql`
+  select
+    *
+  from users
+  where age in (${ [68, 75, 23] })
+`
+
+```
 
 #### TypeScript support
 
@@ -181,40 +227,6 @@ const [first, second] = await sql<[User?]>`SELECT * FROM users WHERE id = ${id}`
 ```
 
 All the public API is typed. Also, TypeScript support is still in beta. Feel free to open an issue if you have trouble with types.
-
-#### Query parameters
-
-Parameters are automatically inferred and handled by Postgres so that SQL injection isn't possible. No special handling is necessary, simply use JS tagged template literals as usual.
-
-```js
-
-let search = 'Mur'
-
-const users = await sql`
-  select 
-    name, 
-    age 
-  from users
-  where 
-    name like ${ search + '%' }
-`
-
-// users = [{ name: 'Murray', age: 68 }]
-
-```
-
-Arrays will be handled by replacement parameters too, so `where in` queries are also simple.
-
-```js
-
-const users = await sql`
-  select 
-    * 
-  from users
-  where age in (${ [68, 75, 23] })
-`
-
-```
 
 ## Stream ```sql` `.stream(fn) -> Promise```
 
@@ -276,6 +288,12 @@ await sql`
 })
 
 ```
+
+## Raw ```sql``.raw()```
+
+Using `.raw()` will return rows as an array with `Buffer` values for each column, instead of objects.
+
+This can be useful to receive identical named columns, or for specific performance / transformation reasons. The column definitions are still included on the result array with access to parsers for each column.
 
 ## Listen and notify
 
@@ -524,25 +542,32 @@ sql.begin(async sql => {
 
 Do note that you can often achieve the same result using [`WITH` queries (Common Table Expressions)](https://www.postgresql.org/docs/current/queries-with.html) instead of using transactions.
 
-## Types
+## Custom Types
 
-You can add ergonomic support for custom types, or simply pass an object with a `{ type, value }` signature that contains the Postgres `oid` for the type and the correctly serialized value.
+You can add ergonomic support for custom types, or simply pass an object with a `{ type, value }` signature that contains the Postgres `oid` for the type and the correctly serialized value. _(`oid` values for types can be found in the `pg_catalog.pg_types` table.)_
 
 Adding Query helpers is the recommended approach which can be done like this:
 
 ```js
-
-const sql = sql({
+const sql = postgres({
   types: {
     rect: {
+      // The pg_types oid to pass to the db along with the serialized value.
       to        : 1337,
+      
+      // An array of pg_types oids to handle when parsing values coming from the db
       from      : [1337],
+
+      //Function that transform values before sending them to the db.
       serialize : ({ x, y, width, height }) => [x, y, width, height],
+
+      // Function that transforms values coming from the db.
       parse     : ([x, y, width, height]) => { x, y, width, height }
     }
   }
 })
 
+// Now you can use sql.types.rect() as specified above
 const [custom] = sql`
   insert into rectangles (
     name,
@@ -609,7 +634,13 @@ There are no guarantees about queries executing in order unless using a transact
 
 ### Idle timeout
 
-Connections will by default not close until `.end()` is called, but often it is useful to have them close when there is no activity or if using Postgres.js in eg. Lamdas / Serverless environments. This can be done using the `idle_timeout` option to specify the amount of seconds to wait before automatically closing an idle connection.
+By default, connections will not close until `.end()` is called. However, it may be useful to have them close automatically when:
+
+- there is no activity for some period of time
+- if using Postgres.js in Lamdas / Serverless environments
+- if using Postgres.js with a database service that automatically closes the connection after some time (see [`ECONNRESET` issue](https://github.com/porsager/postgres/issues/179))
+
+This can be done using the `idle_timeout` option to specify the amount of seconds to wait before automatically closing an idle connection.
 
 For example, to close idle connections after 2 seconds:
 
