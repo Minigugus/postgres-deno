@@ -1,3 +1,9 @@
+# DEPRECATED
+
+Deno is now supported by the official [`postgres` repository](https://github.com/porsager/postgres). This repository is then no more useful, it probably won't be updated anymore. Use https://deno.land/x/postgresjs instead.
+
+<hr>
+
 <img align="left" width="440" height="140" alt="Fastest full PostgreSQL Deno client" src="./postgresjs.svg?sanitize=true" />
 
 - [🚀 Fastest full featured PostgreSQL client](https://github.com/porsager/postgres-benchmarks#results)
